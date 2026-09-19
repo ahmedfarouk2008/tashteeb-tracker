@@ -4,3 +4,5 @@ dist
 *.local
 dev-dist
 .claude
+.env
+.env.local

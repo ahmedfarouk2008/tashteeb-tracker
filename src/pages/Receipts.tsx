@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useStore } from '../store'
 import type { Receipt } from '../types'
 import { getBlob } from '../lib/storage'
+import { fetchRemoteImage } from '../lib/sync'
 import { lineTotal } from '../lib/analytics'
 import { formatBytes, formatDate, formatMoney, formatNumber, normalizeArabic } from '../lib/utils'
 import { Badge, ConfirmDialog, EmptyState, Modal, useObjectUrl } from '../components/ui'
@@ -133,7 +134,8 @@ function ReceiptCard({
   currency: string
   onOpen: () => void
 }) {
-  const url = useObjectUrl(() => getBlob(receipt.blobKey), [receipt.blobKey])
+  const loadImage = useReceiptImage(receipt.blobKey)
+  const url = useObjectUrl(loadImage, [receipt.blobKey])
 
   return (
     <button
@@ -183,7 +185,8 @@ function ReceiptViewer({
   onDelete: () => void
 }) {
   const { expenses, categories, settings } = useStore()
-  const url = useObjectUrl(() => getBlob(receipt.blobKey), [receipt.blobKey])
+  const loadImage = useReceiptImage(receipt.blobKey)
+  const url = useObjectUrl(loadImage, [receipt.blobKey])
   const linked = expenses.filter((e) => e.receiptId === receipt.id)
   const total = linked.reduce((s, e) => s + lineTotal(e), 0)
 
@@ -275,4 +278,19 @@ function ReceiptViewer({
       </div>
     </Modal>
   )
+}
+
+/**
+ * تحميل صورة الفاتورة: من الجهاز أولاً، ومن السحابة عند غيابها
+ * (يحدث عندما تصل بيانات الفاتورة من جهاز آخر قبل تنزيل صورتها).
+ */
+function useReceiptImage(blobKey: string) {
+  const { data, syncUser } = useStore()
+  return useCallback(async () => {
+    const local = await getBlob(blobKey).catch(() => undefined)
+    if (local) return local
+    if (!syncUser) return undefined
+    return fetchRemoteImage(data, syncUser.id, blobKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blobKey, syncUser?.id])
 }

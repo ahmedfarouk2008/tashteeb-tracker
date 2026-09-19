@@ -10,6 +10,7 @@ import {
   todayISO,
 } from '../lib/utils'
 import { ConfirmDialog, Spinner } from '../components/ui'
+import SyncPanel from '../components/SyncPanel'
 import {
   IconAlert,
   IconCheck,
@@ -276,6 +277,9 @@ export default function SettingsPage() {
           </div>
         </div>
       </section>
+
+      {/* ---------------------------- المزامنة ---------------------------- */}
+      <SyncPanel />
 
       {/* ------------------------------- المظهر ------------------------------- */}
       <section className="card p-5">

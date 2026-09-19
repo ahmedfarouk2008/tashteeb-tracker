@@ -17,6 +17,8 @@ export interface Category {
   /** بنود النظام الأساسية لا يمكن حذفها إلا بعد نقل مصاريفها */
   isSystem?: boolean
   createdAt: string
+  /** يُستخدم في المزامنة لتحديد أحدث نسخة */
+  updatedAt?: string
 }
 
 export interface Expense {
@@ -58,6 +60,10 @@ export interface Receipt {
   /** هل تمت معالجة الفاتورة وإضافة بنودها */
   imported: boolean
   createdAt: string
+  /** يُستخدم في المزامنة لتحديد أحدث نسخة */
+  updatedAt?: string
+  /** هل رُفعت الصورة إلى التخزين السحابي */
+  uploaded?: boolean
 }
 
 export interface ChatMessage {
@@ -96,7 +102,26 @@ export interface Settings {
   theme: 'light' | 'dark'
   /** تاريخ آخر نسخة احتياطية — لتذكير المستخدم قبل فقدان البيانات */
   lastBackupAt?: string
+
+  /* ---------------- المزامنة السحابية ---------------- */
+  /** رابط مشروع Supabase */
+  supabaseUrl?: string
+  /** المفتاح العام (anon) — مصمَّم ليكون في المتصفح، والحماية عبر RLS */
+  supabaseAnonKey?: string
+  /** طابع آخر مزامنة ناجحة — نسحب التغييرات الأحدث منه فقط */
+  lastSyncAt?: string
+  /** تشغيل المزامنة التلقائية عند كل تغيير */
+  autoSync?: boolean
 }
+
+/** شاهدة حذف — بدونها لا ينتقل الحذف إلى بقية الأجهزة */
+export interface Tombstone {
+  kind: SyncKind
+  id: string
+  deletedAt: string
+}
+
+export type SyncKind = 'expense' | 'category' | 'receipt' | 'settings'
 
 export interface AppData {
   version: number
@@ -106,6 +131,8 @@ export interface AppData {
   receipts: Receipt[]
   chat: ChatMessage[]
   insights: MarketInsight[]
+  /** سجل المحذوفات لمزامنتها مع بقية الأجهزة */
+  deletions?: Tombstone[]
 }
 
 /** بند مستخرج من فاتورة قبل اعتماده */

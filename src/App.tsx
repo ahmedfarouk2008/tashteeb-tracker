@@ -35,7 +35,7 @@ const NAV: Array<{ id: Tab; label: string; short: string; icon: typeof IconDashb
 ]
 
 export default function App() {
-  const { settings, expenses, updateSettings } = useStore()
+  const { settings, expenses, updateSettings, syncUser, syncState } = useStore()
   const [tab, setTab] = useState<Tab>('dashboard')
   const [addOpen, setAddOpen] = useState(false)
 
@@ -97,6 +97,37 @@ export default function App() {
             <h1 className="hidden text-lg font-extrabold lg:block">{active?.label}</h1>
 
             <div className="ms-auto flex items-center gap-2">
+              {syncUser && (
+                <span
+                  title={
+                    syncState.status === 'error'
+                      ? syncState.message
+                      : syncState.status === 'syncing'
+                        ? 'جارٍ المزامنة'
+                        : 'المزامنة مفعّلة'
+                  }
+                  className={cx(
+                    'flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[10px] font-extrabold',
+                    syncState.status === 'error'
+                      ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
+                      : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400',
+                  )}
+                >
+                  <span
+                    className={cx(
+                      'inline-block h-1.5 w-1.5 rounded-full bg-current',
+                      syncState.status === 'syncing' && 'animate-pulse',
+                    )}
+                  />
+                  <span className="hidden sm:inline">
+                    {syncState.status === 'syncing'
+                      ? 'مزامنة...'
+                      : syncState.status === 'error'
+                        ? 'تعذّرت المزامنة'
+                        : 'متزامن'}
+                  </span>
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => updateSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' })}
