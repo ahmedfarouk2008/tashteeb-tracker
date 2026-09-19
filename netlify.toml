@@ -1,0 +1,30 @@
+# إعدادات النشر على Netlify
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# التطبيق صفحة واحدة — أي مسار يُعاد توجيهه للصفحة الرئيسية
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# عامل الخدمة يجب ألّا يُخزَّن، وإلا لن تصل التحديثات للمستخدمين
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# ملفات الأصول تحمل بصمة في اسمها فيمكن تخزينها طويلاً
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
