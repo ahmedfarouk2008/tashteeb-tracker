@@ -32,7 +32,7 @@ import {
 } from './lib/storage'
 import { fingerprintOf } from './lib/dedupe'
 import { MODEL_FALLBACK_EVENT } from './lib/ai'
-import { currentUser, isSyncConfigured, resetSupabase } from './lib/supabase'
+import { consumeAuthRedirect, currentUser, isSyncConfigured, resetSupabase } from './lib/supabase'
 import { deleteRemoteImage, syncAll } from './lib/sync'
 import { uid } from './lib/utils'
 
@@ -339,8 +339,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setSyncUser(null)
       return
     }
+    // جلسة قادمة من رابط تأكيد البريد لها الأولوية
+    const fromRedirect = await consumeAuthRedirect(data.settings).catch(() => null)
+    if (fromRedirect) {
+      setSyncUser({ id: fromRedirect.id, email: fromRedirect.email ?? '' })
+      notify('تم تأكيد بريدك وتسجيل الدخول — جارٍ المزامنة')
+      return
+    }
     const user = await currentUser(data.settings)
     setSyncUser(user ? { id: user.id, email: user.email ?? '' } : null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.settings])
 
   /** مزامنة في اتجاهين. silent = لا تُظهر تنبيهات (المزامنة التلقائية) */

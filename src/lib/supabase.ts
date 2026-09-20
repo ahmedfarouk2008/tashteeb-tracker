@@ -95,6 +95,8 @@ export function getSupabase(settings: Settings): SupabaseClient {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
+      // التقاط الجلسة القادمة في رابط تأكيد البريد (#access_token=...)
+      detectSessionInUrl: true,
       storageKey: 'tashteeb:auth',
     },
   })
@@ -133,10 +135,46 @@ export function translateAuthError(message: string): string {
   return message
 }
 
+/** عنوان التطبيق الحالي — يعود إليه رابط تأكيد البريد بدل العنوان الافتراضي */
+export function appUrl(): string {
+  return `${window.location.origin}${window.location.pathname}`
+}
+
 export async function signUp(settings: Settings, email: string, password: string): Promise<User | null> {
-  const { data, error } = await getSupabase(settings).auth.signUp({ email, password })
+  const { data, error } = await getSupabase(settings).auth.signUp({
+    email,
+    password,
+    options: { emailRedirectTo: appUrl() },
+  })
   if (error) throw new SyncError(translateAuthError(error.message))
   return data.user
+}
+
+/** إعادة إرسال رسالة التأكيد إلى عنوان التطبيق الصحيح */
+export async function resendConfirmation(settings: Settings, email: string): Promise<void> {
+  const { error } = await getSupabase(settings).auth.resend({
+    type: 'signup',
+    email,
+    options: { emailRedirectTo: appUrl() },
+  })
+  if (error) throw new SyncError(translateAuthError(error.message))
+}
+
+/**
+ * التقاط الجلسة القادمة من رابط التأكيد ثم تنظيف الرابط،
+ * حتى لا يبقى التوكن ظاهراً في شريط العنوان أو في سجل التصفح.
+ */
+export async function consumeAuthRedirect(settings: Settings): Promise<User | null> {
+  const hash = window.location.hash
+  if (!hash.includes('access_token') && !hash.includes('error_description')) return null
+  if (!isSyncConfigured(settings)) return null
+
+  try {
+    const { data } = await getSupabase(settings).auth.getSession()
+    return data.session?.user ?? null
+  } finally {
+    window.history.replaceState(null, '', appUrl())
+  }
 }
 
 export async function signIn(settings: Settings, email: string, password: string): Promise<User> {

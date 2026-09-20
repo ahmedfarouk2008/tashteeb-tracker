@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useStore } from '../store'
 import {
+  appUrl,
   isSyncConfigured,
   normalizeProjectUrl,
+  resendConfirmation,
   signIn,
   signOut,
   signUp,
@@ -155,6 +157,22 @@ export default function SyncPanel() {
             هذا المفتاح «عام» بطبيعته ولا يكشف بياناتك — الحماية من سياسات RLS التي
             يُنشئها ملف الإعداد، وتمنع أي مستخدم من رؤية بيانات غيره.
           </p>
+
+          {/* بدون ضبط هذا العنوان تعود روابط تأكيد البريد إلى localhost:3000 */}
+          <div className="rounded-xl bg-amber-50 px-3.5 py-3 dark:bg-amber-500/10">
+            <p className="text-[11px] font-bold leading-6 text-amber-800 dark:text-amber-200">
+              مهم: في Supabase ← Authentication ← URL Configuration، اضبط
+              <span className="font-mono"> Site URL </span>
+              وأضف نفس العنوان في
+              <span className="font-mono"> Redirect URLs </span>:
+            </p>
+            <code
+              dir="ltr"
+              className="mt-1.5 block select-all rounded-lg bg-white px-2 py-1.5 text-start text-[11px] font-bold text-ink-700 dark:bg-ink-900 dark:text-ink-200"
+            >
+              {appUrl()}
+            </code>
+          </div>
           {configured && (
             <button
               type="button"
@@ -222,9 +240,26 @@ export default function SyncPanel() {
           </div>
 
           {error && (
-            <p className="rounded-xl bg-rose-50 px-3.5 py-2.5 text-xs font-bold leading-6 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
-              {error}
-            </p>
+            <div className="rounded-xl bg-rose-50 px-3.5 py-2.5 text-xs font-bold leading-6 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+              <p>{error}</p>
+              {error.includes('تفعّل بريدك') && (
+                <button
+                  type="button"
+                  className="mt-1.5 underline"
+                  disabled={busy}
+                  onClick={async () => {
+                    try {
+                      await resendConfirmation(settings, email.trim())
+                      notify('أُرسلت رسالة تأكيد جديدة — افتحها من بريدك.')
+                    } catch (err) {
+                      setError((err as Error).message)
+                    }
+                  }}
+                >
+                  إعادة إرسال رسالة التأكيد
+                </button>
+              )}
+            </div>
           )}
 
           <button type="submit" className="btn-primary w-full" disabled={busy}>
