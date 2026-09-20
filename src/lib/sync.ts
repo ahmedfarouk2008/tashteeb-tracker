@@ -48,17 +48,31 @@ function chunk<T>(items: T[], size: number): T[][] {
  * مزامنة كاملة في اتجاهين.
  * تُرجع نسخة جديدة من البيانات بعد الدمج — لا تعدّل المدخلة.
  */
-export async function syncAll(data: AppData, userId: string): Promise<SyncResult> {
+export async function syncAll(
+  data: AppData,
+  userId: string,
+  /** true = تجاهل المؤشرات واسحب/ارفع كل شيء (استرجاع بعد تباعد البيانات) */
+  full = false,
+): Promise<SyncResult> {
   const supabase = getSupabase(data.settings)
-  const since = data.settings.lastSyncAt ?? new Date(0).toISOString()
-  const startedAt = new Date().toISOString()
+  const EPOCH = new Date(0).toISOString()
+
+  /**
+   * مؤشران منفصلان عمداً:
+   * - pullCursor بساعة الخادم: يحدد ما لم نستلمه بعد.
+   * - pushSince بساعة الجهاز: يحدد ما عدّلناه محلياً ولم نرفعه.
+   * خلطهما هو ما كان يُضيع تغييرات الجهاز صاحب الساعة المتأخرة.
+   */
+  const pullCursor = full ? EPOCH : (data.settings.syncCursor ?? EPOCH)
+  const pushSince = full ? EPOCH : (data.settings.lastPushAt ?? EPOCH)
+  const pushedAt = new Date().toISOString()
 
   /* ---------------- 1) سحب تغييرات الأجهزة الأخرى ---------------- */
 
   const { data: remoteRows, error: pullError } = await supabase
     .from(TABLE)
     .select('kind,id,payload,updated_at,deleted')
-    .gt('updated_at', since)
+    .gt('updated_at', pullCursor)
     .order('updated_at', { ascending: true })
 
   if (pullError) throw new SyncError(`تعذّر سحب البيانات: ${pullError.message}`)
@@ -107,22 +121,22 @@ export async function syncAll(data: AppData, userId: string): Promise<SyncResult
   }> = []
 
   for (const e of merged.expenses) {
-    if (stamp(touchedAt(e)) > stamp(since)) {
+    if (stamp(touchedAt(e)) > stamp(pushSince)) {
       outgoing.push({ user_id: userId, kind: 'expense', id: e.id, payload: e, updated_at: touchedAt(e), deleted: false })
     }
   }
   for (const c of merged.categories) {
-    if (stamp(touchedAt(c)) > stamp(since)) {
+    if (stamp(touchedAt(c)) > stamp(pushSince)) {
       outgoing.push({ user_id: userId, kind: 'category', id: c.id, payload: c, updated_at: touchedAt(c), deleted: false })
     }
   }
   for (const r of merged.receipts) {
-    if (stamp(touchedAt(r)) > stamp(since)) {
+    if (stamp(touchedAt(r)) > stamp(pushSince)) {
       outgoing.push({ user_id: userId, kind: 'receipt', id: r.id, payload: r, updated_at: touchedAt(r), deleted: false })
     }
   }
   for (const d of merged.deletions!) {
-    if (stamp(d.deletedAt) > stamp(since)) {
+    if (stamp(d.deletedAt) > stamp(pushSince)) {
       outgoing.push({ user_id: userId, kind: d.kind, id: d.id, payload: {}, updated_at: d.deletedAt, deleted: true })
     }
   }
@@ -138,8 +152,8 @@ export async function syncAll(data: AppData, userId: string): Promise<SyncResult
     user_id: userId,
     kind: 'settings',
     id: 'main',
-    payload: sharedSettings,
-    updated_at: startedAt,
+    payload: { ...sharedSettings, updatedAt: pushedAt },
+    updated_at: pushedAt,
     deleted: false,
   })
 
@@ -147,6 +161,22 @@ export async function syncAll(data: AppData, userId: string): Promise<SyncResult
     const { error } = await supabase.from(TABLE).upsert(batch, { onConflict: 'user_id,kind,id' })
     if (error) throw new SyncError(`تعذّر رفع البيانات: ${error.message}`)
   }
+
+  /**
+   * المؤشر الجديد = أحدث updated_at على الخادم بعد الرفع.
+   * نقرأه من الخادم نفسه حتى لا تتسرّب ساعة الجهاز إلى منطق الترشيح.
+   */
+  const { data: cursorRow } = await supabase
+    .from(TABLE)
+    .select('updated_at')
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const nextCursor =
+    (cursorRow as { updated_at?: string } | null)?.updated_at ??
+    remote[remote.length - 1]?.updated_at ??
+    pullCursor
 
   /* ---------------- 4) صور الفواتير ---------------- */
 
@@ -182,7 +212,12 @@ export async function syncAll(data: AppData, userId: string): Promise<SyncResult
   merged.deletions = merged.deletions!.filter((d) => stamp(d.deletedAt) > monthAgo)
 
   const syncedAt = new Date().toISOString()
-  merged.settings = { ...merged.settings, lastSyncAt: syncedAt }
+  merged.settings = {
+    ...merged.settings,
+    lastSyncAt: syncedAt,
+    syncCursor: nextCursor,
+    lastPushAt: pushedAt,
+  }
 
   return {
     pushed: outgoing.length,
@@ -196,7 +231,11 @@ export async function syncAll(data: AppData, userId: string): Promise<SyncResult
 
 /** تطبيق سجل وارد: يُضاف أو يستبدل الأقدم منه فقط */
 function applyRemoteUpsert(data: AppData, row: RemoteRow): boolean {
-  const remoteStamp = stamp(row.updated_at)
+  // للمقارنة نستخدم طابع الجهاز الذي أنشأ السجل (داخل payload)،
+  // لا وقت الخادم — فوقت الخادم يتغيّر مع كل رفع ولا يعبّر عن أحدث تعديل.
+  const payloadStamp = stamp((row.payload as { updatedAt?: string; createdAt?: string })?.updatedAt
+    ?? (row.payload as { createdAt?: string })?.createdAt)
+  const remoteStamp = payloadStamp || stamp(row.updated_at)
 
   if (row.kind === 'expense') {
     const incoming = row.payload as unknown as Expense

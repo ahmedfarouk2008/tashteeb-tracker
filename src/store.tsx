@@ -73,7 +73,7 @@ interface Store {
   syncUser: SyncUser | null
   syncState: SyncState
   refreshSyncUser: () => Promise<void>
-  runSync: (silent?: boolean) => Promise<void>
+  runSync: (silent?: boolean, full?: boolean) => Promise<void>
 
   exportBackup: (includeImages: boolean) => Promise<string>
   importData: (raw: string) => Promise<void>
@@ -107,6 +107,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const firstRun = useRef(true)
   const syncing = useRef(false)
   const syncTimer = useRef<number | null>(null)
+  const lastSyncedFingerprint = useRef<string>('')
 
   /* حفظ تلقائي عند أي تغيير */
   useEffect(() => {
@@ -353,7 +354,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /** مزامنة في اتجاهين. silent = لا تُظهر تنبيهات (المزامنة التلقائية) */
   const runSync = useCallback(
-    async (silent = false) => {
+    async (silent = false, full = false) => {
       if (syncing.current) return
       if (!syncUser) {
         if (!silent) notify('سجّل الدخول للمزامنة أولاً من «الإعدادات».', 'error')
@@ -367,7 +368,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       syncing.current = true
       setSyncState({ status: 'syncing' })
       try {
-        const result = await syncAll(data, syncUser.id)
+        const result = await syncAll(data, syncUser.id, full)
         // نحافظ على المفاتيح المحلية الحالية حتى لا تُستبدل بنسخة قديمة
         setData((current) => ({
           ...result.data,
@@ -385,9 +386,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }))
 
         const parts: string[] = []
-        if (result.pulled) parts.push(`وصل ${result.pulled} تغيير`)
+        if (result.pulled) parts.push(`نزل ${result.pulled}`)
+        if (result.pushed) parts.push(`رُفع ${result.pushed}`)
         if (result.imagesDownloaded) parts.push(`${result.imagesDownloaded} صورة`)
-        const summary = parts.length ? parts.join(' و') : 'كل شيء محدَّث'
+        const summary = parts.length ? parts.join(' · ') : 'كل شيء محدَّث'
         setSyncState({ status: 'ok', at: result.syncedAt, summary })
         if (!silent && (result.pulled || result.imagesDownloaded)) notify(`تمت المزامنة — ${summary}`)
         else if (!silent) notify('تمت المزامنة — كل شيء محدَّث')
@@ -497,16 +499,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncUser?.id])
 
+  /**
+   * بصمة محتوى البيانات القابلة للمزامنة.
+   * المزامنة نفسها تنتج مصفوفات جديدة، فالاعتماد على مراجع المصفوفات
+   * كان يعيد جدولة المزامنة بلا نهاية كل ٨ ثوانٍ.
+   */
+  const syncFingerprint = useMemo(() => {
+    const latest = (items: Array<{ updatedAt?: string; createdAt?: string }>) =>
+      items.reduce((max, i) => {
+        const v = i.updatedAt || i.createdAt || ''
+        return v > max ? v : max
+      }, '')
+    return [
+      data.expenses.length,
+      data.categories.length,
+      data.receipts.length,
+      (data.deletions ?? []).length,
+      latest(data.expenses),
+      latest(data.categories),
+      latest(data.receipts),
+    ].join('|')
+  }, [data.expenses, data.categories, data.receipts, data.deletions])
+
   /* مزامنة تلقائية بعد توقف التعديلات (تجميع التغييرات في دفعة واحدة) */
   useEffect(() => {
     if (!syncUser || data.settings.autoSync === false) return
+    if (lastSyncedFingerprint.current === syncFingerprint) return
     if (syncTimer.current) window.clearTimeout(syncTimer.current)
-    syncTimer.current = window.setTimeout(() => void runSync(true), 8000)
+    syncTimer.current = window.setTimeout(() => {
+      lastSyncedFingerprint.current = syncFingerprint
+      void runSync(true)
+    }, 8000)
     return () => {
       if (syncTimer.current) window.clearTimeout(syncTimer.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.expenses, data.categories, data.receipts, syncUser?.id])
+  }, [syncFingerprint, syncUser?.id, data.settings.autoSync])
 
   /* مزامنة عند عودة الاتصال */
   useEffect(() => {

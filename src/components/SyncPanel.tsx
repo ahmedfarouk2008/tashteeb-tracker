@@ -336,6 +336,15 @@ export default function SyncPanel() {
               {syncState.status === 'syncing' ? <Spinner /> : <IconRefresh width={16} height={16} />}
               مزامنة الآن
             </button>
+            <button
+              type="button"
+              className="btn-outline"
+              title="يتجاهل المؤشرات ويعيد مطابقة كل البيانات — استخدمه لو اختلفت الأجهزة"
+              onClick={() => void runSync(false, true)}
+              disabled={syncState.status === 'syncing'}
+            >
+              مزامنة كاملة
+            </button>
             <button type="button" className="btn-outline" onClick={() => setShowConfig((v) => !v)}>
               بيانات المشروع
             </button>

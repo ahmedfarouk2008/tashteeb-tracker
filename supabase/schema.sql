@@ -19,6 +19,26 @@ create table if not exists public.documents (
 create index if not exists documents_sync_idx
   on public.documents (user_id, updated_at desc);
 
+-- ------------------------------------------------------------
+--  updated_at يُكتب بساعة الخادم دائماً، لا بساعة الجهاز.
+--  بدون هذا تختلف الساعات بين الموبايل واللابتوب فتضيع تغييرات
+--  الجهاز «المتأخر» ولا تصل إلى الجهاز الآخر أبداً.
+-- ------------------------------------------------------------
+create or replace function public.set_document_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists documents_set_updated_at on public.documents;
+create trigger documents_set_updated_at
+  before insert or update on public.documents
+  for each row execute function public.set_document_updated_at();
+
 -- ============================================================
 --  أمان مستوى الصف: كل مستخدم يرى ويعدّل بياناته فقط
 -- ============================================================
