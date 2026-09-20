@@ -20,9 +20,52 @@ export class SyncError extends Error {
   }
 }
 
+/**
+ * تصحيح رابط المشروع تلقائياً.
+ * الخطأ الأشيع نسخ رابط لوحة التحكم بدل رابط الـ API:
+ *   https://supabase.com/dashboard/project/abcd1234  ←  https://abcd1234.supabase.co
+ * كما نقبل معرّف المشروع وحده، ونحذف أي مسار زائد يسبب خطأ
+ * «Invalid path specified in request URL».
+ */
+export function normalizeProjectUrl(input: string): string {
+  const raw = (input ?? '').trim()
+  if (!raw) return ''
+
+  // رابط لوحة التحكم
+  const dashboard = raw.match(/supabase\.(?:com|io)\/dashboard\/project\/([a-z0-9]{8,})/i)
+  if (dashboard) return `https://${dashboard[1]}.supabase.co`
+
+  // معرّف المشروع وحده (حروف صغيرة وأرقام بلا نقاط أو شرطات مائلة)
+  if (/^[a-z0-9]{16,}$/i.test(raw)) return `https://${raw.toLowerCase()}.supabase.co`
+
+  const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+  try {
+    // الأصل فقط — أي مسار مثل /rest/v1 أو /auth يُسبب فشل كل الطلبات
+    return new URL(withScheme).origin
+  } catch {
+    return raw.replace(/\/+$/, '')
+  }
+}
+
+/** رسالة عربية تشرح الخلل في الرابط، أو null إذا كان سليماً */
+export function validateProjectUrl(url: string): string | null {
+  if (!url) return 'أدخل رابط المشروع.'
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return 'صيغة الرابط غير صحيحة. المطلوب رابط مثل https://abcd1234.supabase.co'
+  }
+  if (parsed.protocol !== 'https:') return 'يجب أن يبدأ الرابط بـ https.'
+  if (/supabase\.(com|io)$/i.test(parsed.hostname) && !parsed.hostname.endsWith('.supabase.co')) {
+    return 'هذا رابط لوحة التحكم وليس رابط المشروع. انسخ Project URL من: Project Settings ← API.'
+  }
+  return null
+}
+
 export function supabaseConfig(settings: Settings): { url: string; key: string } {
   return {
-    url: (settings.supabaseUrl || ENV_URL).trim().replace(/\/+$/, ''),
+    url: normalizeProjectUrl(settings.supabaseUrl || ENV_URL),
     key: (settings.supabaseAnonKey || ENV_KEY).trim(),
   }
 }
@@ -38,6 +81,13 @@ export function getSupabase(settings: Settings): SupabaseClient {
   const { url, key } = supabaseConfig(settings)
   if (!url || !key) {
     throw new SyncError('لم تُضبط بيانات المزامنة. افتح «الإعدادات» وأضف رابط المشروع والمفتاح العام.')
+  }
+  const urlProblem = validateProjectUrl(url)
+  if (urlProblem) throw new SyncError(urlProblem)
+  if (!key.startsWith('eyJ') && !key.startsWith('sb_')) {
+    throw new SyncError(
+      'المفتاح لا يبدو صحيحاً. انسخ المفتاح العام (anon public) كاملاً من: Project Settings ← API.',
+    )
   }
   if (cached && cached.url === url && cached.key === key) return cached.client
 
@@ -64,6 +114,15 @@ export function resetSupabase() {
 /** ترجمة رسائل Supabase الإنجليزية إلى عربية مفهومة */
 export function translateAuthError(message: string): string {
   const m = message.toLowerCase()
+  if (m.includes('invalid path specified in request url')) {
+    return 'رابط المشروع غير صحيح — الطلب لم يصل إلى Supabase. انسخ Project URL من: Project Settings ← API (يكون بالشكل https://xxxx.supabase.co) وليس رابط لوحة التحكم.'
+  }
+  if (m.includes('no api key') || m.includes('invalid api key') || m.includes('invalid jwt')) {
+    return 'المفتاح العام غير صحيح. انسخ anon public كاملاً من: Project Settings ← API.'
+  }
+  if (m.includes('signups not allowed') || m.includes('signup is disabled')) {
+    return 'إنشاء الحسابات معطّل في مشروعك. فعّله من: Authentication ← Sign In / Providers ← Email ← Allow new users to sign up.'
+  }
   if (m.includes('invalid login credentials')) return 'البريد أو كلمة المرور غير صحيحة.'
   if (m.includes('user already registered')) return 'هذا البريد مسجّل بالفعل — سجّل الدخول بدل إنشاء حساب.'
   if (m.includes('password should be at least')) return 'كلمة المرور قصيرة — استخدم ٦ أحرف على الأقل.'

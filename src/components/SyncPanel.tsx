@@ -1,6 +1,14 @@
 import { useState } from 'react'
 import { useStore } from '../store'
-import { isSyncConfigured, signIn, signOut, signUp } from '../lib/supabase'
+import {
+  isSyncConfigured,
+  normalizeProjectUrl,
+  signIn,
+  signOut,
+  signUp,
+  supabaseConfig,
+  validateProjectUrl,
+} from '../lib/supabase'
 import { formatDate } from '../lib/utils'
 import { Badge, Spinner } from './ui'
 import { IconAlert, IconCheck, IconLink, IconRefresh } from '../components/Icons'
@@ -18,6 +26,8 @@ export default function SyncPanel() {
   const [showConfig, setShowConfig] = useState(false)
 
   const configured = isSyncConfigured(settings)
+  const effectiveUrl = supabaseConfig(settings).url
+  const urlProblem = settings.supabaseUrl ? validateProjectUrl(effectiveUrl) : null
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -103,9 +113,28 @@ export default function SyncPanel() {
               dir="ltr"
               value={settings.supabaseUrl ?? ''}
               onChange={(e) => updateSettings({ supabaseUrl: e.target.value.trim() })}
+              onBlur={(e) => {
+                // تصحيح تلقائي: رابط لوحة التحكم أو معرّف المشروع → رابط الـ API
+                const fixed = normalizeProjectUrl(e.target.value)
+                if (fixed && fixed !== e.target.value) updateSettings({ supabaseUrl: fixed })
+              }}
               placeholder="https://xxxxx.supabase.co"
               spellCheck={false}
             />
+            {urlProblem ? (
+              <p className="mt-1.5 flex items-start gap-1.5 text-[11px] font-bold leading-6 text-rose-600 dark:text-rose-400">
+                <IconAlert width={13} height={13} /> {urlProblem}
+              </p>
+            ) : (
+              effectiveUrl && (
+                <p
+                  dir="ltr"
+                  className="mt-1.5 flex items-center gap-1.5 text-start text-[11px] font-bold text-emerald-600 dark:text-emerald-400"
+                >
+                  <IconCheck width={13} height={13} /> {effectiveUrl}
+                </p>
+              )
+            )}
           </div>
           <div>
             <label className="label" htmlFor="sb-key">
@@ -203,9 +232,19 @@ export default function SyncPanel() {
             {mode === 'signin' ? 'دخول ومزامنة' : 'إنشاء الحساب'}
           </button>
 
-          <p className="text-[11px] font-semibold leading-6 text-ink-400">
-            استخدم نفس الحساب على الموبايل واللابتوب لتظهر بياناتك في الاثنين.
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="flex-1 text-[11px] font-semibold leading-6 text-ink-400">
+              استخدم نفس الحساب على الموبايل واللابتوب لتظهر بياناتك في الاثنين.
+            </p>
+            {/* لا بد من طريقة للرجوع لبيانات المشروع لو كان الرابط خاطئاً */}
+            <button
+              type="button"
+              className="shrink-0 text-[11px] font-extrabold text-brand-600 underline dark:text-brand-400"
+              onClick={() => setShowConfig((v) => !v)}
+            >
+              {showConfig ? 'إخفاء بيانات المشروع' : 'تعديل بيانات المشروع'}
+            </button>
+          </div>
         </form>
       )}
 
