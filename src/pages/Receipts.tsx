@@ -22,6 +22,8 @@ export default function Receipts() {
   const [scannerOpen, setScannerOpen] = useState(false)
   const [viewing, setViewing] = useState<Receipt | null>(null)
   const [deleting, setDeleting] = useState<Receipt | null>(null)
+  /** حذف بنود الفاتورة معها — يُستخدم عند إعادة مسحها من جديد */
+  const [deleteItems, setDeleteItems] = useState(false)
   const [query, setQuery] = useState('')
 
   const visible = useMemo(() => {
@@ -114,17 +116,42 @@ export default function Receipts() {
       <ConfirmDialog
         open={!!deleting}
         title="حذف الفاتورة"
-        message={`سيتم حذف صورة الفاتورة «${deleting?.fileName ?? ''}». البنود المرتبطة بها ستبقى مسجّلة بدون صورة.`}
-        confirmLabel="حذف الصورة"
-        onCancel={() => setDeleting(null)}
+        confirmLabel="حذف"
+        onCancel={() => {
+          setDeleting(null)
+          setDeleteItems(false)
+        }}
         onConfirm={() => {
           if (deleting) {
-            void deleteReceipt(deleting.id, true)
-            notify('تم حذف الفاتورة', 'info')
+            void deleteReceipt(deleting.id, !deleteItems)
+            notify(deleteItems ? 'تم حذف الفاتورة وبنودها' : 'تم حذف الفاتورة', 'info')
           }
           setDeleting(null)
+          setDeleteItems(false)
         }}
-      />
+      >
+        <div className="space-y-3">
+          <p className="text-sm leading-7 text-ink-600 dark:text-ink-300">
+            سيتم حذف صورة الفاتورة «{deleting?.fileName ?? ''}».
+          </p>
+          {!!deleting && linkedExpenses(deleting.id).length > 0 && (
+            <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-rose-50 px-3.5 py-3 text-xs font-bold leading-6 text-rose-800 dark:bg-rose-500/10 dark:text-rose-200">
+              <input
+                type="checkbox"
+                checked={deleteItems}
+                onChange={(e) => setDeleteItems(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-rose-400 text-rose-600 focus:ring-rose-500"
+              />
+              <span>
+                احذف أيضاً الـ {formatNumber(linkedExpenses(deleting.id).length)} بند المرتبطة بها
+                <span className="block font-semibold opacity-80">
+                  فعّل هذا لو أردت مسح الفاتورة من جديد بأسعار صحيحة.
+                </span>
+              </span>
+            </label>
+          )}
+        </div>
+      </ConfirmDialog>
     </div>
   )
 }

@@ -123,10 +123,25 @@ export default function ReceiptScannerModal({
       const fallbackCategory = categories.find((c) => c.id === 'cat_misc')?.id ?? categories[0]?.id ?? ''
       const date = result.date || todayISO()
 
-      const extracted: ExtractedLine[] = result.items.map((item) => ({
+      const extracted: ExtractedLine[] = result.items.map((item) => {
+        /**
+         * عمود «الإجمالي» في الفاتورة هو المرجع: بعض الموردين يخصمون على
+         * بنود بعينها دون غيرها، فيكون الإجمالي أقل من (السعر × العدد).
+         * نشتق منه سعر الوحدة الفعلي ونحتفظ بالسعر المعلن للمراجعة.
+         */
+        const printed = item.unitCost
+        const gross = printed * item.quantity
+        const hasLineDiscount =
+          item.lineTotal != null && item.lineTotal > 0 && Math.abs(item.lineTotal - gross) > 0.01
+        const effective = hasLineDiscount
+          ? Math.round((item.lineTotal! / item.quantity) * 100) / 100
+          : printed
+
+        return {
         tempId: uid('line'),
         itemName: item.itemName,
-        unitCost: item.unitCost,
+        unitCost: effective,
+        listUnitCost: hasLineDiscount ? printed : undefined,
         quantity: item.quantity,
         unit: item.unit || 'قطعة',
         date,
@@ -136,7 +151,8 @@ export default function ReceiptScannerModal({
         vendor: result.vendor,
         selected: true,
         edited: false,
-      }))
+        }
+      })
 
       setMeta({
         vendor: result.vendor ?? '',
@@ -189,8 +205,20 @@ export default function ReceiptScannerModal({
    * الخصم يُحسب على البنود المحددة فقط، لأن المستخدم قد يستبعد بنوداً مكررة.
    * المرجع هو المبلغ المدفوع (total) لا قيمة الخصم، فهو الرقم المؤكد في الفاتورة.
    */
+  /** بنود تحمل خصمها من الفاتورة نفسها (عمود الإجمالي) */
+  const perLineDiscounts = lines.filter((l) => l.listUnitCost != null && l.listUnitCost > l.unitCost)
+
+  /**
+   * الخصم الإجمالي يُعرض فقط حين لا تحمل البنود خصمها أصلاً،
+   * وإلا لخُصم مرتين. والمرجع هو إجمالي الفاتورة لا المبلغ المدفوع،
+   * فالدفع الجزئي يترك «متبقياً» وليس خصماً.
+   */
   const hasDiscount =
-    meta.total != null && meta.total > 0 && grossTotal > 0 && meta.total < grossTotal - 0.5
+    perLineDiscounts.length === 0 &&
+    meta.total != null &&
+    meta.total > 0 &&
+    grossTotal > 0 &&
+    meta.total < grossTotal - 0.5
   const discountValue = hasDiscount ? grossTotal - (meta.total ?? 0) : 0
   const discounted = hasDiscount && applyDiscount
     ? distributeDiscount(selectedLines, meta.total ?? 0)
@@ -215,7 +243,9 @@ export default function ReceiptScannerModal({
       itemName: l.itemName.trim(),
       categoryId: l.categoryId,
       unitCost: l.discountedUnitCost,
-      listUnitCost: l.discountedUnitCost !== l.unitCost ? l.unitCost : undefined,
+      // السعر المعلن: من خصم السطر نفسه، أو من توزيع خصم إجمالي
+      listUnitCost:
+        l.listUnitCost ?? (l.discountedUnitCost !== l.unitCost ? l.unitCost : undefined),
       quantity: l.quantity,
       unit: l.unit || 'قطعة',
       date: l.date,
@@ -403,7 +433,7 @@ export default function ReceiptScannerModal({
               </div>
               <div>
                 <label className="label" htmlFor="r-total">
-                  المبلغ المدفوع (بعد الخصم)
+                  إجمالي الفاتورة بعد الخصم
                 </label>
                 <input
                   id="r-total"
@@ -418,7 +448,17 @@ export default function ReceiptScannerModal({
                   }
                   placeholder="اتركه فارغاً لو لا يوجد خصم"
                 />
+                <p className="mt-1.5 text-[11px] font-semibold leading-6 text-ink-400">
+                  ليس المبلغ المدفوع — «المتبقي» في الفاتورة دَين لم يُسدَّد بعد ولا يقلّل التكلفة.
+                </p>
               </div>
+
+              {perLineDiscounts.length > 0 && (
+                <p className="rounded-xl bg-emerald-50 px-3 py-2.5 text-[11px] font-bold leading-6 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200">
+                  الفاتورة تحمل خصماً على {formatNumber(perLineDiscounts.length)} بند — قُرئت
+                  أسعارها من عمود «الإجمالي» كما هي، والبنود بلا خصم بقيت بسعرها الكامل.
+                </p>
+              )}
 
               {hasDiscount && (
                 <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-3 dark:border-emerald-500/40 dark:bg-emerald-500/10">
@@ -578,7 +618,16 @@ function LineRow({
           </datalist>
 
           <div className="flex flex-wrap items-center gap-2">
-            {discountFactor < 1 ? (
+            {line.listUnitCost != null && line.listUnitCost > line.unitCost ? (
+              <span className="flex items-center gap-1.5">
+                <span className="tnum text-xs font-extrabold text-emerald-700 dark:text-emerald-300">
+                  {formatMoney(line.unitCost * line.quantity, currency)}
+                </span>
+                <span className="tnum text-[10px] font-bold text-ink-400 line-through">
+                  {formatMoney(line.listUnitCost * line.quantity, currency)}
+                </span>
+              </span>
+            ) : discountFactor < 1 ? (
               <span className="flex items-center gap-1.5">
                 <span className="tnum text-xs font-extrabold text-emerald-700 dark:text-emerald-300">
                   {formatMoney(

@@ -178,10 +178,16 @@ export interface OcrResult {
   total?: number
   currency?: string
   notes?: string
+  /** المبلغ المدفوع فعلياً (قد يكون أقل من الإجمالي في الدفع الجزئي) */
+  paid?: number
+  /** المتبقي في ذمة العميل — ليس خصماً ولا يؤثر على التكلفة */
+  due?: number
   items: Array<{
     itemName: string
     unitCost: number
     quantity: number
+    /** إجمالي السطر كما هو مكتوب في الفاتورة — يعكس خصم هذا البند وحده */
+    lineTotal?: number
     unit?: string
     categoryHint?: string
   }>

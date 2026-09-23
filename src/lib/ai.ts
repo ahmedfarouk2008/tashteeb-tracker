@@ -324,15 +324,26 @@ export async function extractReceipt(
 - إذا لم تُذكر الكمية فاعتبرها 1.
 - التاريخ بصيغة YYYY-MM-DD. إذا لم يظهر تاريخ في الفاتورة اترك الحقل فارغاً.
 - لا تُكرّر نفس السطر مرتين، ولا تُدرج الإجماليات أو الضريبة أو الخصم كبنود.
-- "unitCost" هو السعر المكتوب أمام البند كما هو، دون خصم.
-- إذا كان في الفاتورة خصم أو حسم أو "مخصوم" أو فرق بين مجموع البنود والمبلغ
-  المدفوع، فاملأ: "subtotal" بمجموع البنود قبل الخصم، و"discount" بقيمة الخصم،
-  و"total" بالمبلغ المدفوع فعلياً. إن لم يوجد خصم اترك discount = 0.
+
+أعمدة الفاتورة (مهم جداً):
+- "unitCost" = عمود «السعر» كما هو مكتوب أمام البند (سعر الوحدة قبل أي خصم).
+- "lineTotal" = عمود «الإجمالي» أو «القيمة» المكتوب في نهاية السطر، انسخه كما هو
+  ولا تحسبه بنفسك. كثير من الفواتير تطبّق خصماً على بعض البنود دون غيرها، فيكون
+  الإجمالي أقل من (السعر × العدد) في تلك البنود فقط. هذا العمود هو المرجع الحقيقي
+  للتكلفة. إذا لم يوجد عمود إجمالي اترك lineTotal فارغاً.
+
+الإجماليات في أسفل الفاتورة:
+- "subtotal" = مجموع البنود قبل الخصم إن ذُكر.
+- "discount" = قيمة خصم إجمالي صريح على الفاتورة كلها (وليس خصم البنود المفردة).
+- "total" = إجمالي الفاتورة المستحق.
+- "paid" = المبلغ المدفوع فعلياً، و"due" = المتبقي في الذمة.
+- تحذير: «متبقي» أو «باقي» أو «رصيد» ليس خصماً — هو مبلغ لم يُسدَّد بعد.
+  لا تنقصه من الإجمالي ولا تضعه في discount.
 - "categoryHint" يجب أن يكون أحد المعرّفات التالية فقط:
 ${catList}
 
 أعد JSON بهذا الشكل بالضبط:
-{"vendor":"اسم المحل أو المورد","date":"YYYY-MM-DD","subtotal":0,"discount":0,"total":0,"currency":"ج.م","notes":"ملاحظات مختصرة","items":[{"itemName":"","unitCost":0,"quantity":1,"unit":"قطعة","categoryHint":"cat_misc"}]}`
+{"vendor":"اسم المحل أو المورد","date":"YYYY-MM-DD","subtotal":0,"discount":0,"total":0,"paid":0,"due":0,"currency":"ج.م","notes":"ملاحظات مختصرة","items":[{"itemName":"","unitCost":0,"quantity":1,"lineTotal":0,"unit":"قطعة","categoryHint":"cat_misc"}]}`
 
   const raw = await callGemini({
     settings,
@@ -355,12 +366,15 @@ ${catList}
     subtotal: parsed.subtotal != null ? parseNumber(parsed.subtotal) : undefined,
     discount: parsed.discount != null ? parseNumber(parsed.discount) : undefined,
     total: parsed.total != null ? parseNumber(parsed.total) : undefined,
+    paid: parsed.paid != null ? parseNumber(parsed.paid) : undefined,
+    due: parsed.due != null ? parseNumber(parsed.due) : undefined,
     currency: parsed.currency?.toString().trim() || undefined,
     notes: parsed.notes?.toString().trim() || undefined,
     items: items
       .map((it) => ({
         itemName: String(it?.itemName ?? '').trim(),
         unitCost: parseNumber(it?.unitCost),
+        lineTotal: it?.lineTotal != null ? parseNumber(it.lineTotal) : undefined,
         quantity: Math.max(parseNumber(it?.quantity) || 1, 0.01),
         unit: String(it?.unit ?? 'قطعة').trim() || 'قطعة',
         categoryHint: String(it?.categoryHint ?? '').trim(),
