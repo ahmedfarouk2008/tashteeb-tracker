@@ -1,13 +1,20 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import type { Receipt } from '../types'
-import { getBlob } from '../lib/storage'
+import { compressImage, getBlob, putBlob } from '../lib/storage'
 import { fetchRemoteImage } from '../lib/sync'
 import { distributeDiscount, lineTotal } from '../lib/analytics'
 import { formatBytes, formatDate, formatMoney, formatNumber, normalizeArabic } from '../lib/utils'
-import { Badge, ConfirmDialog, EmptyState, Modal, useObjectUrl } from '../components/ui'
+import { Badge, ConfirmDialog, EmptyState, Modal, Spinner, useObjectUrl } from '../components/ui'
 import { parseNumber } from '../lib/utils'
-import { IconGallery, IconSearch, IconSparkles, IconTrash, IconUpload } from '../components/Icons'
+import {
+  IconAlert,
+  IconGallery,
+  IconSearch,
+  IconSparkles,
+  IconTrash,
+  IconUpload,
+} from '../components/Icons'
 import ReceiptScannerModal from '../components/ReceiptScannerModal'
 
 export default function Receipts() {
@@ -187,9 +194,30 @@ function ReceiptViewer({
 }) {
   const { expenses, categories, settings, updateExpense, updateReceipt, notify } = useStore()
   const loadImage = useReceiptImage(receipt.blobKey)
-  const url = useObjectUrl(loadImage, [receipt.blobKey])
+  const [imageVersionState, setImageVersionState] = useState(0)
+  const url = useObjectUrl(loadImage, [receipt.blobKey, imageVersionState])
   const linked = expenses.filter((e) => e.receiptId === receipt.id)
   const total = linked.reduce((s, e) => s + lineTotal(e), 0)
+
+  /* إعادة إرفاق صورة ضاعت من هذا الجهاز (بدل فقدان الفاتورة وبنودها) */
+  const replaceRef = useRef<HTMLInputElement>(null)
+  const [replacing, setReplacing] = useState(false)
+
+  const replaceImage = async (file: File) => {
+    setReplacing(true)
+    try {
+      const blob = await compressImage(file)
+      await putBlob(receipt.blobKey, blob)
+      // uploaded=false يجعل المزامنة التالية ترفعها إلى السحابة
+      updateReceipt(receipt.id, { size: blob.size, mimeType: blob.type, uploaded: false })
+      setImageVersionState((v) => v + 1)
+      notify('تم إرفاق الصورة — ستُرفع في المزامنة التالية')
+    } catch (err) {
+      notify((err as Error).message || 'تعذّر إرفاق الصورة', 'error')
+    } finally {
+      setReplacing(false)
+    }
+  }
 
   /* تصحيح فاتورة أُضيفت بالسعر الكامل بينما كان فيها خصم */
   const [discountOpen, setDiscountOpen] = useState(false)
@@ -259,8 +287,37 @@ function ReceiptViewer({
               className="w-full rounded-2xl border border-ink-200 object-contain dark:border-ink-700"
             />
           ) : (
-            <div className="skeleton aspect-[3/4] w-full" />
+            <div className="flex aspect-[3/4] w-full flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-ink-300 p-5 text-center dark:border-ink-700">
+              <span className="text-ink-400">
+                <IconAlert width={26} height={26} />
+              </span>
+              <p className="text-xs font-bold leading-6 text-ink-500 dark:text-ink-400">
+                الصورة غير متاحة على هذا الجهاز.
+                <br />
+                أرفقها من جديد — البنود المرتبطة لن تتأثر.
+              </p>
+              <button
+                type="button"
+                className="btn-primary btn-sm"
+                onClick={() => replaceRef.current?.click()}
+                disabled={replacing}
+              >
+                {replacing ? <Spinner /> : <IconUpload width={15} height={15} />}
+                إرفاق الصورة من جديد
+              </button>
+            </div>
           )}
+          <input
+            ref={replaceRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ''
+              if (f) void replaceImage(f)
+            }}
+          />
         </div>
 
         <div className="space-y-3">

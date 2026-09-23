@@ -194,9 +194,20 @@ export async function syncAll(
     const local = await getBlob(receipt.blobKey).catch(() => undefined)
 
     if (local && !receipt.uploaded) {
+      // نُرسل بايتات محقّقة: الرفع يفشل بـ «No content provided» لو كان الجسم فارغاً
+      const bytes = await local.arrayBuffer().catch(() => null)
+      if (!bytes || bytes.byteLength === 0) {
+        imagesFailed++
+        imageError =
+          imageError ||
+          `صورة «${receipt.fileName}» غير مقروءة على هذا الجهاز — افتح الفاتورة واضغط «إرفاق الصورة من جديد».`
+        receipt.uploaded = false
+        continue
+      }
+      const body = new Blob([bytes], { type: receipt.mimeType || 'image/jpeg' })
       const { error } = await supabase.storage
         .from(BUCKET)
-        .upload(path, local, { contentType: receipt.mimeType, upsert: true })
+        .upload(path, body, { contentType: receipt.mimeType || 'image/jpeg', upsert: true })
       if (error) {
         // لا نبتلع الخطأ: بدونه تظهر بطاقات فاتورة بلا صورة دون تفسير
         imagesFailed++

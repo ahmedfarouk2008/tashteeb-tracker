@@ -80,12 +80,35 @@ async function withStore<T>(
   })
 }
 
+/** شكل التخزين: بايتات فعلية لا كائن Blob */
+interface StoredImage {
+  data: ArrayBuffer
+  type: string
+}
+
+/**
+ * نخزّن **بايتات** الصورة لا كائن Blob/File.
+ * تخزين File مباشرة في IndexedDB يحفظ إشارة إلى ملف في نظام التشغيل؛
+ * وعلى iOS يُفرَّغ هذا الملف بعد إعادة تشغيل التطبيق فتصبح الصورة
+ * بحجم صفر — وهو سبب فشل رفعها برسالة «No content provided».
+ */
 export async function putBlob(key: string, blob: Blob): Promise<void> {
-  await withStore('readwrite', (s) => s.put(blob, key) as IDBRequest<IDBValidKey>)
+  const data = await blob.arrayBuffer()
+  if (!data.byteLength) throw new Error('الصورة فارغة — تعذّرت قراءة محتواها.')
+  const record: StoredImage = { data, type: blob.type || 'image/jpeg' }
+  await withStore('readwrite', (s) => s.put(record, key) as IDBRequest<IDBValidKey>)
 }
 
 export async function getBlob(key: string): Promise<Blob | undefined> {
-  return withStore<Blob | undefined>('readonly', (s) => s.get(key))
+  const stored = await withStore<StoredImage | Blob | undefined>('readonly', (s) => s.get(key))
+  if (!stored) return undefined
+
+  // صور قديمة مخزّنة بالشكل السابق (Blob مباشر)
+  if (stored instanceof Blob) return stored.size > 0 ? stored : undefined
+
+  const record = stored as StoredImage
+  if (!record.data?.byteLength) return undefined
+  return new Blob([record.data], { type: record.type || 'image/jpeg' })
 }
 
 export async function deleteBlob(key: string): Promise<void> {
@@ -126,26 +149,33 @@ export function fileToBase64(file: Blob): Promise<string> {
  * ويسرّع تحليل الفاتورة دون فقدان وضوح النص.
  */
 export async function compressImage(file: File, maxSide = 1600, quality = 0.82): Promise<Blob> {
-  if (!file.type.startsWith('image/')) return file
+  /**
+   * أي مسار خروج يجب أن يُرجع بايتات مقروءة الآن، لا إشارة إلى ملف
+   * قد يختفي لاحقاً (سلوك iOS مع File المخزَّن في IndexedDB).
+   */
+  const materialize = async (): Promise<Blob> =>
+    new Blob([await file.arrayBuffer()], { type: file.type || 'image/jpeg' })
+
+  if (!file.type.startsWith('image/')) return materialize()
   try {
     const bitmap = await createImageBitmap(file)
     const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height))
     if (scale === 1 && file.size < 900_000) {
       bitmap.close()
-      return file
+      return materialize()
     }
     const canvas = document.createElement('canvas')
     canvas.width = Math.round(bitmap.width * scale)
     canvas.height = Math.round(bitmap.height * scale)
     const ctx = canvas.getContext('2d')
-    if (!ctx) return file
+    if (!ctx) return materialize()
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
     bitmap.close()
     const blob = await new Promise<Blob | null>((res) =>
       canvas.toBlob(res, 'image/jpeg', quality),
     )
-    return blob ?? file
+    return blob ?? materialize()
   } catch {
-    return file
+    return materialize()
   }
 }
