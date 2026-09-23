@@ -26,6 +26,7 @@ type FormState = {
   vendor: string
   notes: string
   receiptId: string
+  funderId: string
 }
 
 const emptyForm = (categoryId: string): FormState => ({
@@ -38,10 +39,12 @@ const emptyForm = (categoryId: string): FormState => ({
   vendor: '',
   notes: '',
   receiptId: '',
+  funderId: '',
 })
 
 export default function ExpenseFormModal({ open, onClose, expense = null, defaults }: Props) {
-  const { categories, expenses, receipts, addExpense, updateExpense, notify, settings } = useStore()
+  const { categories, expenses, receipts, funders, addExpense, updateExpense, notify, settings } =
+    useStore()
   const isEdit = Boolean(expense)
 
   const [form, setForm] = useState<FormState>(() => emptyForm(categories[0]?.id ?? ''))
@@ -63,6 +66,7 @@ export default function ExpenseFormModal({ open, onClose, expense = null, defaul
         vendor: expense.vendor ?? '',
         notes: expense.notes ?? '',
         receiptId: expense.receiptId ?? '',
+        funderId: expense.funderId ?? '',
       })
     } else {
       setForm({ ...emptyForm(categories[0]?.id ?? ''), ...toFormState(defaults) })
@@ -111,6 +115,7 @@ export default function ExpenseFormModal({ open, onClose, expense = null, defaul
       vendor: form.vendor.trim() || undefined,
       notes: form.notes.trim() || undefined,
       receiptId: form.receiptId || undefined,
+      funderId: form.funderId || undefined,
       source: expense?.source ?? (form.receiptId ? 'hybrid' : 'manual'),
     }
 
@@ -262,6 +267,40 @@ export default function ExpenseFormModal({ open, onClose, expense = null, defaul
           </span>
         </div>
 
+        {funders.length > 0 && (
+          <div>
+            <label className="label">مصدر التمويل (يُخصم من رصيده)</label>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => set('funderId', '')}
+                className={
+                  form.funderId === ''
+                    ? 'chip bg-ink-700 text-white dark:bg-ink-600'
+                    : 'chip bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300'
+                }
+              >
+                بدون
+              </button>
+              {funders.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => set('funderId', f.id)}
+                  className={
+                    form.funderId === f.id
+                      ? 'chip text-white'
+                      : 'chip bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300'
+                  }
+                  style={form.funderId === f.id ? { backgroundColor: f.color } : undefined}
+                >
+                  {f.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label className="label" htmlFor="date">
@@ -348,5 +387,6 @@ function toFormState(defaults?: Partial<NewExpense>): Partial<FormState> {
   if (defaults.vendor) out.vendor = defaults.vendor
   if (defaults.notes) out.notes = defaults.notes
   if (defaults.receiptId) out.receiptId = defaults.receiptId
+  if (defaults.funderId) out.funderId = defaults.funderId
   return out
 }

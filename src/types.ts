@@ -21,10 +21,23 @@ export interface Category {
   updatedAt?: string
 }
 
+/** مصدر تمويل: شخص له رصيد احتياطي يُخصم منه ما يُصرف */
+export interface Funder {
+  id: string
+  name: string
+  /** إجمالي ما وضعه هذا الشخص — يُعدَّل كلما أضاف مبلغاً جديداً */
+  reserve: number
+  color: string
+  createdAt: string
+  updatedAt?: string
+}
+
 export interface Expense {
   id: string
   itemName: string
   categoryId: string
+  /** من أي رصيد دُفع هذا المصروف */
+  funderId?: string
   /** سعر الوحدة */
   unitCost: number
   quantity: number
@@ -146,6 +159,11 @@ export interface AppData {
   receipts: Receipt[]
   chat: ChatMessage[]
   insights: MarketInsight[]
+  /**
+   * مصادر التمويل. تُزامَن ضمن حزمة الإعدادات المشتركة، فلا تحتاج
+   * تعديل مخطط قاعدة البيانات ولا إعادة تشغيل ملف الـ SQL.
+   */
+  funders: Funder[]
   /** سجل المحذوفات لمزامنتها مع بقية الأجهزة */
   deletions?: Tombstone[]
 }
@@ -162,6 +180,8 @@ export interface ExtractedLine {
   categoryId: string
   notes?: string
   vendor?: string
+  /** مصدر التمويل المختار لبنود هذه الفاتورة */
+  funderId?: string
   /** حالة كشف التكرار */
   duplicateOf?: string
   duplicateReason?: string

@@ -52,6 +52,12 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'light',
 }
 
+/** مصادر التمويل الافتراضية — يمكن تعديلها أو إضافة غيرها */
+export const DEFAULT_FUNDERS = [
+  { id: 'fnd_ahmed', name: 'أحمد', reserve: 0, color: '#3381fb' },
+  { id: 'fnd_mona', name: 'منى', reserve: 0, color: '#d946ef' },
+]
+
 export function createInitialData(): AppData {
   const now = new Date().toISOString()
   return {
@@ -62,5 +68,6 @@ export function createInitialData(): AppData {
     receipts: [],
     chat: [],
     insights: [],
+    funders: DEFAULT_FUNDERS.map((f) => ({ ...f, createdAt: now, updatedAt: now })),
   }
 }

@@ -13,6 +13,7 @@ import {
   IconSettings,
   IconSun,
   IconTags,
+  IconWallet,
 } from './components/Icons'
 import Dashboard from './pages/Dashboard'
 import Expenses from './pages/Expenses'
@@ -20,15 +21,24 @@ import Receipts from './pages/Receipts'
 import Categories from './pages/Categories'
 import Assistant from './pages/Assistant'
 import SettingsPage from './pages/Settings'
+import Funding from './pages/Funding'
 import ExpenseFormModal from './components/ExpenseFormModal'
 import OfflineBar from './components/OfflineBar'
 
-export type Tab = 'dashboard' | 'expenses' | 'receipts' | 'categories' | 'assistant' | 'settings'
+export type Tab =
+  | 'dashboard'
+  | 'expenses'
+  | 'receipts'
+  | 'funding'
+  | 'assistant'
+  | 'categories'
+  | 'settings'
 
 const NAV: Array<{ id: Tab; label: string; short: string; icon: typeof IconDashboard }> = [
   { id: 'dashboard', label: 'لوحة التحكم', short: 'الرئيسية', icon: IconDashboard },
   { id: 'expenses', label: 'المصاريف', short: 'المصاريف', icon: IconList },
   { id: 'receipts', label: 'الفواتير', short: 'الفواتير', icon: IconGallery },
+  { id: 'funding', label: 'التمويل', short: 'التمويل', icon: IconWallet },
   { id: 'assistant', label: 'المساعد الذكي', short: 'المساعد', icon: IconChat },
   { id: 'categories', label: 'البنود', short: 'البنود', icon: IconTags },
   { id: 'settings', label: 'الإعدادات', short: 'الإعدادات', icon: IconSettings },
@@ -149,6 +159,7 @@ export default function App() {
           {tab === 'dashboard' && <Dashboard onNavigate={setTab} onAdd={() => setAddOpen(true)} />}
           {tab === 'expenses' && <Expenses />}
           {tab === 'receipts' && <Receipts />}
+          {tab === 'funding' && <Funding />}
           {tab === 'categories' && <Categories />}
           {tab === 'assistant' && <Assistant />}
           {tab === 'settings' && <SettingsPage />}
@@ -156,7 +167,7 @@ export default function App() {
 
         {/* ------------------ شريط التنقل السفلي (الجوال) ------------------ */}
         <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-ink-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md dark:border-ink-800 dark:bg-ink-900/95 lg:hidden">
-          <div className="mx-auto grid max-w-lg grid-cols-6">
+          <div className="mx-auto grid max-w-lg grid-cols-7">
             {NAV.map((item) => {
               const Icon = item.icon
               const isActive = tab === item.id

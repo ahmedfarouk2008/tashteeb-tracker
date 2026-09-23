@@ -1,7 +1,7 @@
 import { Suspense, lazy, useMemo } from 'react'
 import { useStore } from '../store'
 import type { Tab } from '../App'
-import { categoryStats, lineTotal, monthlyStats, sumExpenses } from '../lib/analytics'
+import { categoryStats, funderStats, lineTotal, monthlyStats, sumExpenses } from '../lib/analytics'
 import { clamp, formatMoney, formatNumber } from '../lib/utils'
 import { EmptyState, ProgressBar } from '../components/ui'
 import { IconChart, IconPlus, IconWallet } from '../components/Icons'
@@ -15,7 +15,7 @@ export default function Dashboard({
   onNavigate: (tab: Tab) => void
   onAdd: () => void
 }) {
-  const { expenses, categories, receipts, settings } = useStore()
+  const { expenses, categories, receipts, funders, settings } = useStore()
 
   const total = sumExpenses(expenses)
   const stats = useMemo(() => categoryStats(expenses, categories), [expenses, categories])
@@ -26,6 +26,8 @@ export default function Dashboard({
   const budget = settings.totalBudget || planned
   const remaining = budget - total
   const usage = budget > 0 ? total / budget : 0
+
+  const funding = useMemo(() => funderStats(expenses, funders), [expenses, funders])
 
   const recent = useMemo(
     () =>
@@ -116,6 +118,51 @@ export default function Dashboard({
       >
         <DashboardCharts stats={active} months={months} currency={settings.currency} />
       </Suspense>
+
+      {/* --------------------------- أرصدة التمويل --------------------------- */}
+      {funding.some((f) => f.reserve > 0 || f.spent > 0) && (
+        <section className="card overflow-hidden">
+          <header className="flex items-center justify-between gap-2 border-b border-ink-100 px-5 py-4 dark:border-ink-800">
+            <h2 className="text-sm font-extrabold">أرصدة التمويل</h2>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => onNavigate('funding')}>
+              التفاصيل
+            </button>
+          </header>
+          <div className="divide-y divide-ink-100 dark:divide-ink-800">
+            {funding.map((f) => {
+              const over = f.remaining < 0
+              return (
+                <div key={f.funder.id} className="px-5 py-3.5">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-sm font-bold">
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: f.funder.color }}
+                      />
+                      {f.funder.name}
+                    </span>
+                    <span
+                      className={`tnum text-xs font-extrabold ${
+                        over ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
+                      }`}
+                    >
+                      {over ? 'تجاوز ' : 'متبقٍ '}
+                      {formatMoney(Math.abs(f.remaining), settings.currency)}
+                    </span>
+                  </div>
+                  {f.reserve > 0 && (
+                    <ProgressBar value={f.spent / f.reserve} tone={over ? 'danger' : 'ok'} />
+                  )}
+                  <p className="tnum mt-1.5 text-[11px] font-bold text-ink-500 dark:text-ink-400">
+                    سحب {formatMoney(f.spent, settings.currency)} من{' '}
+                    {formatMoney(f.reserve, settings.currency)}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       {/* ---------------------- المخطط مقابل الفعلي ---------------------- */}
       <section className="card overflow-hidden">

@@ -17,7 +17,8 @@ import ExpenseFormModal from '../components/ExpenseFormModal'
 import MarketCompareModal from '../components/MarketCompareModal'
 
 export default function Expenses() {
-  const { expenses, categories, receipts, settings, deleteExpense, insights, notify } = useStore()
+  const { expenses, categories, receipts, funders, settings, deleteExpense, insights, notify } =
+    useStore()
 
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
   const [showFilters, setShowFilters] = useState(false)
@@ -286,6 +287,17 @@ export default function Expenses() {
                     )}
 
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {(() => {
+                        const funder = funders.find((f) => f.id === e.funderId)
+                        return funder ? (
+                          <span
+                            className="chip text-white"
+                            style={{ backgroundColor: funder.color }}
+                          >
+                            {funder.name}
+                          </span>
+                        ) : null
+                      })()}
                       {e.source !== 'manual' && (
                         <Badge tone="info">{e.source === 'ocr' ? 'من فاتورة' : 'فاتورة + تعديل'}</Badge>
                       )}

@@ -14,6 +14,7 @@ import type {
   Category,
   ChatMessage,
   Expense,
+  Funder,
   MarketInsight,
   Receipt,
   Settings,
@@ -65,6 +66,11 @@ interface Store {
   appendChat: (message: Omit<ChatMessage, 'id' | 'createdAt'>) => ChatMessage
   removeChat: (id: string) => void
   clearChat: () => void
+
+  funders: Funder[]
+  addFunder: (input: Omit<Funder, 'id' | 'createdAt' | 'updatedAt'>) => Funder
+  updateFunder: (id: string, patch: Partial<Funder>) => void
+  deleteFunder: (id: string) => void
 
   saveInsights: (items: MarketInsight[]) => void
   clearInsights: () => void
@@ -260,6 +266,50 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           : e,
       ),
       deletions: [...(d.deletions ?? []), tombstone('category', id)],
+    }))
+  }, [])
+
+  /* ---------------- مصادر التمويل ---------------- */
+
+  /**
+   * المموّلون يُزامنون ضمن حزمة الإعدادات المشتركة، لذا أي تعديل
+   * عليهم يُحدِّث طابع الإعدادات ليُرفع في المزامنة التالية.
+   */
+  const touchFunders = (d: AppData, funders: Funder[]): AppData => ({
+    ...d,
+    funders,
+    settings: { ...d.settings, settingsUpdatedAt: new Date().toISOString() },
+  })
+
+  const addFunder = useCallback((input: Omit<Funder, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const now = new Date().toISOString()
+    const funder: Funder = { ...input, id: uid('fnd'), createdAt: now, updatedAt: now }
+    setData((d) => touchFunders(d, [...d.funders, funder]))
+    return funder
+  }, [])
+
+  const updateFunder = useCallback((id: string, patch: Partial<Funder>) => {
+    setData((d) =>
+      touchFunders(
+        d,
+        d.funders.map((f) =>
+          f.id === id ? { ...f, ...patch, updatedAt: new Date().toISOString() } : f,
+        ),
+      ),
+    )
+  }, [])
+
+  /** الحذف يفكّ ارتباط المصاريف فقط — لا تُحذف أي مصاريف */
+  const deleteFunder = useCallback((id: string) => {
+    const now = new Date().toISOString()
+    setData((d) => ({
+      ...touchFunders(
+        d,
+        d.funders.filter((f) => f.id !== id),
+      ),
+      expenses: d.expenses.map((e) =>
+        e.funderId === id ? { ...e, funderId: undefined, updatedAt: now } : e,
+      ),
     }))
   }, [])
 
@@ -600,6 +650,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       appendChat,
       removeChat,
       clearChat,
+      funders: data.funders,
+      addFunder,
+      updateFunder,
+      deleteFunder,
       saveInsights,
       clearInsights,
       syncUser,
@@ -630,6 +684,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       appendChat,
       removeChat,
       clearChat,
+      addFunder,
+      updateFunder,
+      deleteFunder,
       saveInsights,
       clearInsights,
       syncUser,

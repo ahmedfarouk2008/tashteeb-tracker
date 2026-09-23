@@ -47,6 +47,8 @@ export function migrate(input: Partial<AppData>): AppData {
     receipts: input.receipts ?? [],
     chat: input.chat ?? [],
     insights: input.insights ?? [],
+    // التركيبات القديمة لا تحتوي مموّلين — نزرع الافتراضيين مرة واحدة
+    funders: input.funders?.length ? input.funders : base.funders,
   }
 }
 

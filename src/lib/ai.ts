@@ -1,4 +1,12 @@
-import type { Category, ChatMessage, Expense, MarketVerdict, OcrResult, Settings } from '../types'
+import type {
+  Category,
+  ChatMessage,
+  Expense,
+  Funder,
+  MarketVerdict,
+  OcrResult,
+  Settings,
+} from '../types'
 import { fileToBase64 } from './storage'
 import { formatMoney, parseNumber, todayISO } from './utils'
 
@@ -470,6 +478,7 @@ export function buildProjectContext(
   expenses: Expense[],
   categories: Category[],
   settings: Settings,
+  funders: Funder[] = [],
 ): string {
   if (!expenses.length) return 'لا توجد مصاريف مسجّلة بعد.'
 
@@ -513,7 +522,21 @@ ${byCategory.map((c) => `- ${c.name}: ${c.sum.toFixed(2)} (${c.count} بند)${c
 المصروف حسب الشهر:
 ${[...byMonth.entries()].sort().map(([m, v]) => `- ${m}: ${v.toFixed(2)}`).join('\n')}
 
-أكبر البنود:
+${
+    funders.length
+      ? `أرصدة التمويل (لكل شخص احتياطي يُخصم منه ما صُرف):
+${funders
+  .map((f) => {
+    const spent = expenses
+      .filter((e) => e.funderId === f.id)
+      .reduce((s, e) => s + e.unitCost * e.quantity, 0)
+    return `- ${f.name}: الاحتياطي ${f.reserve.toFixed(2)} | المسحوب ${spent.toFixed(2)} | المتبقي ${(f.reserve - spent).toFixed(2)}`
+  })
+  .join('\n')}
+
+`
+      : ''
+  }أكبر البنود:
 ${topItems}`
 }
 

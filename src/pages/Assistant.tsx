@@ -22,7 +22,8 @@ const SUGGESTIONS = [
 ]
 
 export default function Assistant() {
-  const { chat, expenses, categories, settings, appendChat, removeChat, clearChat } = useStore()
+  const { chat, expenses, categories, settings, funders, appendChat, removeChat, clearChat } =
+    useStore()
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   /** آخر سؤال أُرسل — يُستخدم في زر «إعادة المحاولة» بعد فشل عابر */
@@ -32,8 +33,8 @@ export default function Assistant() {
   const abortRef = useRef<AbortController | null>(null)
 
   const context = useMemo(
-    () => buildProjectContext(expenses, categories, settings),
-    [expenses, categories, settings],
+    () => buildProjectContext(expenses, categories, settings, funders),
+    [expenses, categories, settings, funders],
   )
 
   useEffect(() => {

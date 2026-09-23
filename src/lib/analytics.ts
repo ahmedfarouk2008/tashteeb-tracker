@@ -1,4 +1,4 @@
-import type { Category, Expense, Receipt } from '../types'
+import type { Category, Expense, Funder, Receipt } from '../types'
 import { normalizeArabic } from './utils'
 
 export const lineTotal = (e: Expense): number => e.unitCost * e.quantity
@@ -189,4 +189,42 @@ export function distributeDiscount<T extends { unitCost: number; quantity: numbe
       discountedUnitCost: Math.round(l.unitCost * factor * 100) / 100,
     })),
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* مصادر التمويل                                                       */
+/* ------------------------------------------------------------------ */
+
+export interface FunderStat {
+  funder: Funder
+  /** ما وضعه هذا الشخص */
+  reserve: number
+  /** ما صُرف من رصيده */
+  spent: number
+  /** المتبقي له (قد يكون سالباً عند تجاوز الاحتياطي) */
+  remaining: number
+  count: number
+  /** نسبة الاستهلاك من الاحتياطي */
+  usage: number | null
+}
+
+export function funderStats(expenses: Expense[], funders: Funder[]): FunderStat[] {
+  return funders.map((funder) => {
+    const items = expenses.filter((e) => e.funderId === funder.id)
+    const spent = sumExpenses(items)
+    return {
+      funder,
+      reserve: funder.reserve,
+      spent,
+      remaining: funder.reserve - spent,
+      count: items.length,
+      usage: funder.reserve > 0 ? spent / funder.reserve : null,
+    }
+  })
+}
+
+/** مصاريف لم يُحدَّد مصدر تمويلها — تُعرض حتى لا تختفي من الحساب */
+export function unassignedExpenses(expenses: Expense[], funders: Funder[]): Expense[] {
+  const ids = new Set(funders.map((f) => f.id))
+  return expenses.filter((e) => !e.funderId || !ids.has(e.funderId))
 }

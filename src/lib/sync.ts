@@ -1,4 +1,4 @@
-import type { AppData, Category, Expense, Receipt, SyncKind } from '../types'
+import type { AppData, Category, Expense, Funder, Receipt, SyncKind } from '../types'
 import { getBlob, putBlob } from './storage'
 import { SyncError, getSupabase } from './supabase'
 
@@ -89,6 +89,7 @@ export async function syncAll(
     expenses: [...data.expenses],
     categories: [...data.categories],
     receipts: [...data.receipts],
+    funders: [...data.funders],
     deletions: [...(data.deletions ?? [])],
   }
 
@@ -161,6 +162,8 @@ export async function syncAll(
         currency: merged.settings.currency,
         totalBudget: merged.settings.totalBudget,
         region: merged.settings.region,
+        // المموّلون يسافرون مع الإعدادات — لا يحتاجون نوعاً جديداً في القاعدة
+        funders: merged.funders,
         updatedAt: settingsAt,
       },
       updated_at: settingsAt,
@@ -402,7 +405,10 @@ function applyRemoteUpsert(data: AppData, row: RemoteRow): boolean {
   }
 
   if (row.kind === 'settings') {
-    const shared = row.payload as Partial<AppData['settings']> & { updatedAt?: string }
+    const shared = row.payload as Partial<AppData['settings']> & {
+      updatedAt?: string
+      funders?: Funder[]
+    }
     // لا نقبل نسخة أقدم من تعديلنا المحلي
     if (remoteStamp <= stamp(data.settings.settingsUpdatedAt)) return false
 
@@ -414,6 +420,7 @@ function applyRemoteUpsert(data: AppData, row: RemoteRow): boolean {
       region: shared.region ?? data.settings.region,
       settingsUpdatedAt: shared.updatedAt ?? row.updated_at,
     }
+    if (Array.isArray(shared.funders)) data.funders = shared.funders as Funder[]
     return true
   }
 

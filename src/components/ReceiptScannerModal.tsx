@@ -23,6 +23,7 @@ export default function ReceiptScannerModal({
     categories,
     expenses,
     receipts,
+    funders,
     settings,
     addReceipt,
     updateReceipt,
@@ -47,6 +48,8 @@ export default function ReceiptScannerModal({
   }>({ vendor: '', date: todayISO(), total: null, discount: null })
   /** توزيع الخصم على أسعار البنود بدل تسجيلها بالسعر الكامل */
   const [applyDiscount, setApplyDiscount] = useState(true)
+  /** مصدر التمويل المطبَّق على كل بنود الفاتورة (الفاتورة يدفعها شخص واحد عادةً) */
+  const [funderId, setFunderId] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -64,6 +67,7 @@ export default function ReceiptScannerModal({
     setLines([])
     setMeta({ vendor: '', date: todayISO(), total: null, discount: null })
     setApplyDiscount(true)
+    setFunderId('')
   }
 
   const close = () => {
@@ -252,6 +256,7 @@ export default function ReceiptScannerModal({
       vendor: (l.vendor || meta.vendor || '').trim() || undefined,
       notes: l.notes?.trim() || undefined,
       receiptId: receipt?.id,
+      funderId: funderId || undefined,
       source: l.edited ? 'hybrid' : 'ocr',
     }))
 
@@ -479,6 +484,40 @@ export default function ReceiptScannerModal({
                   </label>
                 </div>
               )}
+              {funders.length > 0 && (
+                <div>
+                  <label className="label">مصدر التمويل لكل البنود</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setFunderId('')}
+                      className={
+                        funderId === ''
+                          ? 'chip bg-ink-700 text-white dark:bg-ink-600'
+                          : 'chip bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300'
+                      }
+                    >
+                      بدون
+                    </button>
+                    {funders.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setFunderId(f.id)}
+                        className={
+                          funderId === f.id
+                            ? 'chip text-white'
+                            : 'chip bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300'
+                        }
+                        style={funderId === f.id ? { backgroundColor: f.color } : undefined}
+                      >
+                        {f.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {receipt && (
                 <p className="text-[11px] font-semibold text-ink-400">
                   {receipt.fileName} · {formatBytes(receipt.size)}
