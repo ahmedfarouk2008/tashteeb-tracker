@@ -324,11 +324,15 @@ export async function extractReceipt(
 - إذا لم تُذكر الكمية فاعتبرها 1.
 - التاريخ بصيغة YYYY-MM-DD. إذا لم يظهر تاريخ في الفاتورة اترك الحقل فارغاً.
 - لا تُكرّر نفس السطر مرتين، ولا تُدرج الإجماليات أو الضريبة أو الخصم كبنود.
+- "unitCost" هو السعر المكتوب أمام البند كما هو، دون خصم.
+- إذا كان في الفاتورة خصم أو حسم أو "مخصوم" أو فرق بين مجموع البنود والمبلغ
+  المدفوع، فاملأ: "subtotal" بمجموع البنود قبل الخصم، و"discount" بقيمة الخصم،
+  و"total" بالمبلغ المدفوع فعلياً. إن لم يوجد خصم اترك discount = 0.
 - "categoryHint" يجب أن يكون أحد المعرّفات التالية فقط:
 ${catList}
 
 أعد JSON بهذا الشكل بالضبط:
-{"vendor":"اسم المحل أو المورد","date":"YYYY-MM-DD","total":0,"currency":"ج.م","notes":"ملاحظات مختصرة","items":[{"itemName":"","unitCost":0,"quantity":1,"unit":"قطعة","categoryHint":"cat_misc"}]}`
+{"vendor":"اسم المحل أو المورد","date":"YYYY-MM-DD","subtotal":0,"discount":0,"total":0,"currency":"ج.م","notes":"ملاحظات مختصرة","items":[{"itemName":"","unitCost":0,"quantity":1,"unit":"قطعة","categoryHint":"cat_misc"}]}`
 
   const raw = await callGemini({
     settings,
@@ -348,6 +352,8 @@ ${catList}
   return {
     vendor: parsed.vendor?.toString().trim() || undefined,
     date: normalizeDate(parsed.date),
+    subtotal: parsed.subtotal != null ? parseNumber(parsed.subtotal) : undefined,
+    discount: parsed.discount != null ? parseNumber(parsed.discount) : undefined,
     total: parsed.total != null ? parseNumber(parsed.total) : undefined,
     currency: parsed.currency?.toString().trim() || undefined,
     notes: parsed.notes?.toString().trim() || undefined,

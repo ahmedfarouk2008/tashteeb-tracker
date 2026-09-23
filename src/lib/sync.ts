@@ -26,6 +26,10 @@ export interface SyncResult {
   pulled: number
   imagesUploaded: number
   imagesDownloaded: number
+  /** عدد الصور التي فشل رفعها أو تنزيلها */
+  imagesFailed: number
+  /** أول رسالة خطأ متعلقة بالصور — لعرضها للمستخدم */
+  imageError: string
   syncedAt: string
   data: AppData
 }
@@ -182,6 +186,8 @@ export async function syncAll(
 
   let imagesUploaded = 0
   let imagesDownloaded = 0
+  let imagesFailed = 0
+  let imageError = ''
 
   for (const receipt of merged.receipts) {
     const path = `${userId}/${receipt.blobKey}`
@@ -191,17 +197,28 @@ export async function syncAll(
       const { error } = await supabase.storage
         .from(BUCKET)
         .upload(path, local, { contentType: receipt.mimeType, upsert: true })
-      if (!error) {
+      if (error) {
+        // لا نبتلع الخطأ: بدونه تظهر بطاقات فاتورة بلا صورة دون تفسير
+        imagesFailed++
+        imageError = imageError || `تعذّر رفع صورة «${receipt.fileName}»: ${error.message}`
+        receipt.uploaded = false
+      } else {
         receipt.uploaded = true
         imagesUploaded++
       }
     } else if (!local) {
       // صورة وصلت بياناتها من جهاز آخر — نزّلها لتعمل لاحقاً بدون إنترنت
-      const { data: file } = await supabase.storage.from(BUCKET).download(path)
+      const { data: file, error } = await supabase.storage.from(BUCKET).download(path)
       if (file) {
         await putBlob(receipt.blobKey, file).catch(() => undefined)
         receipt.uploaded = true
         imagesDownloaded++
+      } else {
+        imagesFailed++
+        imageError =
+          imageError || `تعذّر تنزيل صورة «${receipt.fileName}»: ${error?.message ?? 'غير موجودة على الخادم'}`
+        // نُبقيها غير مرفوعة حتى يُعاد رفعها من الجهاز الذي يملك الصورة
+        receipt.uploaded = false
       }
     }
   }
@@ -224,9 +241,96 @@ export async function syncAll(
     pulled,
     imagesUploaded,
     imagesDownloaded,
+    imagesFailed,
+    imageError,
     syncedAt,
     data: merged,
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* فحص تشخيصي للمزامنة                                                 */
+/* ------------------------------------------------------------------ */
+
+export interface DiagnosticLine {
+  label: string
+  status: 'ok' | 'fail'
+  detail?: string
+}
+
+/**
+ * يختبر كل حلقة في سلسلة المزامنة على حدة ويقول أين انقطعت بالضبط،
+ * بدل ترك المستخدم أمام بطاقات فارغة بلا سبب.
+ */
+export async function diagnoseSync(data: AppData, userId: string): Promise<DiagnosticLine[]> {
+  const supabase = getSupabase(data.settings)
+  const lines: DiagnosticLine[] = []
+  const probe = `${userId}/__diagnostic__`
+
+  // 1) جدول البيانات
+  const { error: tableError } = await supabase.from(TABLE).select('id').limit(1)
+  lines.push(
+    tableError
+      ? {
+          label: 'جدول البيانات (documents)',
+          status: 'fail',
+          detail: `${tableError.message} — شغّل ملف supabase/schema.sql من SQL Editor.`,
+        }
+      : { label: 'جدول البيانات (documents)', status: 'ok' },
+  )
+
+  // 2) رفع ملف اختبار
+  const blob = new Blob(['tashteeb-diagnostic'], { type: 'text/plain' })
+  const { error: uploadError } = await supabase.storage
+    .from(BUCKET)
+    .upload(probe, blob, { contentType: 'text/plain', upsert: true })
+  lines.push(
+    uploadError
+      ? {
+          label: 'رفع الصور إلى التخزين',
+          status: 'fail',
+          detail: `${uploadError.message} — تأكد من وجود حاوية receipts وسياساتها في schema.sql.`,
+        }
+      : { label: 'رفع الصور إلى التخزين', status: 'ok' },
+  )
+
+  // 3) تنزيل ملف الاختبار
+  if (!uploadError) {
+    const { error: downloadError } = await supabase.storage.from(BUCKET).download(probe)
+    lines.push(
+      downloadError
+        ? {
+            label: 'تنزيل الصور من التخزين',
+            status: 'fail',
+            detail: `${downloadError.message} — سياسة القراءة على storage.objects ناقصة.`,
+          }
+        : { label: 'تنزيل الصور من التخزين', status: 'ok' },
+    )
+    await supabase.storage.from(BUCKET).remove([probe])
+  }
+
+  // 4) حالة صور الفواتير فعلياً
+  let missingLocal = 0
+  let missingRemote = 0
+  for (const r of data.receipts) {
+    const local = await getBlob(r.blobKey).catch(() => undefined)
+    if (local) continue
+    missingLocal++
+    const { data: file } = await supabase.storage.from(BUCKET).download(`${userId}/${r.blobKey}`)
+    if (!file) missingRemote++
+  }
+  lines.push({
+    label: `صور الفواتير (${data.receipts.length})`,
+    status: missingRemote === 0 ? 'ok' : 'fail',
+    detail:
+      missingRemote > 0
+        ? `${missingRemote} صورة غير موجودة على الخادم — افتح التطبيق على الجهاز الذي صوّرها واضغط «مزامنة كاملة» ليرفعها.`
+        : missingLocal > 0
+          ? `${missingLocal} صورة ستُنزَّل عند فتحها.`
+          : 'كل الصور متاحة محلياً.',
+  })
+
+  return lines
 }
 
 /** تطبيق سجل وارد: يُضاف أو يستبدل الأقدم منه فقط */

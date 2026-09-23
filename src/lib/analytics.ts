@@ -164,3 +164,29 @@ export function toCsv(expenses: Expense[], categories: Category[]): string {
   // BOM لضمان ظهور العربية بشكل صحيح في Excel
   return `﻿${head.map(esc).join(',')}\n${rows.join('\n')}`
 }
+
+/**
+ * توزيع خصم الفاتورة على بنودها بالتناسب.
+ * الفواتير كثيراً ما تعرض سعر كل صنف كاملاً ثم تخصم من الإجمالي؛
+ * بدون التوزيع تكون البنود المسجّلة أغلى من المدفوع فعلياً.
+ *
+ * @param lines البنود بسعر الوحدة قبل الخصم
+ * @param finalTotal المبلغ المدفوع فعلياً بعد الخصم
+ * @returns معامل الخصم وسعر كل وحدة بعده
+ */
+export function distributeDiscount<T extends { unitCost: number; quantity: number }>(
+  lines: T[],
+  finalTotal: number,
+): { factor: number; lines: Array<T & { discountedUnitCost: number }> } {
+  const gross = lines.reduce((s, l) => s + l.unitCost * l.quantity, 0)
+  const factor = gross > 0 && finalTotal > 0 ? finalTotal / gross : 1
+
+  return {
+    factor,
+    lines: lines.map((l) => ({
+      ...l,
+      // التقريب لقرشين حتى لا تتضخّم فروق الكسور عبر عشرات البنود
+      discountedUnitCost: Math.round(l.unitCost * factor * 100) / 100,
+    })),
+  }
+}

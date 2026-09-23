@@ -4,8 +4,9 @@ import type { ExtractedLine, Receipt } from '../types'
 import { AiError, extractReceipt, onAiProgress, type AiProgress } from '../lib/ai'
 import { compressImage } from '../lib/storage'
 import { hashBlob, markDuplicates } from '../lib/dedupe'
+import { distributeDiscount } from '../lib/analytics'
 import { UNITS } from '../lib/defaults'
-import { cx, formatBytes, formatMoney, parseNumber, todayISO, uid } from '../lib/utils'
+import { cx, formatBytes, formatMoney, formatNumber, parseNumber, todayISO, uid } from '../lib/utils'
 import { Badge, Modal, Spinner } from './ui'
 import { IconAlert, IconCamera, IconCheck, IconSparkles, IconTrash, IconUpload } from './Icons'
 
@@ -36,11 +37,16 @@ export default function ReceiptScannerModal({
   const [preview, setPreview] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<Receipt | null>(null)
   const [lines, setLines] = useState<ExtractedLine[]>([])
-  const [meta, setMeta] = useState<{ vendor: string; date: string; total: number | null }>({
-    vendor: '',
-    date: todayISO(),
-    total: null,
-  })
+  const [meta, setMeta] = useState<{
+    vendor: string
+    date: string
+    /** المبلغ المدفوع فعلياً بعد الخصم */
+    total: number | null
+    /** قيمة الخصم المقروءة من الفاتورة */
+    discount: number | null
+  }>({ vendor: '', date: todayISO(), total: null, discount: null })
+  /** توزيع الخصم على أسعار البنود بدل تسجيلها بالسعر الكامل */
+  const [applyDiscount, setApplyDiscount] = useState(true)
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -56,7 +62,8 @@ export default function ReceiptScannerModal({
     setPreview(null)
     setReceipt(null)
     setLines([])
-    setMeta({ vendor: '', date: todayISO(), total: null })
+    setMeta({ vendor: '', date: todayISO(), total: null, discount: null })
+    setApplyDiscount(true)
   }
 
   const close = () => {
@@ -131,7 +138,12 @@ export default function ReceiptScannerModal({
         edited: false,
       }))
 
-      setMeta({ vendor: result.vendor ?? '', date, total: result.total ?? null })
+      setMeta({
+        vendor: result.vendor ?? '',
+        date,
+        total: result.total ?? null,
+        discount: result.discount ?? null,
+      })
       setLines(markDuplicates(extracted, expenses))
       setStage('review')
 
@@ -170,8 +182,22 @@ export default function ReceiptScannerModal({
     ])
 
   const selectedLines = lines.filter((l) => l.selected)
-  const selectedTotal = selectedLines.reduce((s, l) => s + l.unitCost * l.quantity, 0)
+  const grossTotal = selectedLines.reduce((s, l) => s + l.unitCost * l.quantity, 0)
   const duplicateCount = lines.filter((l) => l.duplicateOf).length
+
+  /**
+   * الخصم يُحسب على البنود المحددة فقط، لأن المستخدم قد يستبعد بنوداً مكررة.
+   * المرجع هو المبلغ المدفوع (total) لا قيمة الخصم، فهو الرقم المؤكد في الفاتورة.
+   */
+  const hasDiscount =
+    meta.total != null && meta.total > 0 && grossTotal > 0 && meta.total < grossTotal - 0.5
+  const discountValue = hasDiscount ? grossTotal - (meta.total ?? 0) : 0
+  const discounted = hasDiscount && applyDiscount
+    ? distributeDiscount(selectedLines, meta.total ?? 0)
+    : null
+  const selectedTotal = discounted
+    ? discounted.lines.reduce((s, l) => s + l.discountedUnitCost * l.quantity, 0)
+    : grossTotal
 
   const confirmImport = () => {
     const valid = selectedLines.filter((l) => l.itemName.trim() && l.unitCost > 0 && l.quantity > 0)
@@ -180,10 +206,16 @@ export default function ReceiptScannerModal({
       return
     }
 
-    const payload: NewExpense[] = valid.map((l) => ({
+    // نُعيد حساب التوزيع على البنود الصالحة فقط حتى يطابق المجموع المدفوع
+    const priced = hasDiscount && applyDiscount
+      ? distributeDiscount(valid, meta.total ?? 0).lines
+      : valid.map((l) => ({ ...l, discountedUnitCost: l.unitCost }))
+
+    const payload: NewExpense[] = priced.map((l) => ({
       itemName: l.itemName.trim(),
       categoryId: l.categoryId,
-      unitCost: l.unitCost,
+      unitCost: l.discountedUnitCost,
+      listUnitCost: l.discountedUnitCost !== l.unitCost ? l.unitCost : undefined,
       quantity: l.quantity,
       unit: l.unit || 'قطعة',
       date: l.date,
@@ -202,7 +234,11 @@ export default function ReceiptScannerModal({
         total: meta.total ?? receipt.total,
       })
     }
-    notify(`تمت إضافة ${valid.length} بند من الفاتورة`)
+    notify(
+      hasDiscount && applyDiscount
+        ? `تمت إضافة ${valid.length} بند بعد توزيع خصم ${formatMoney(discountValue, settings.currency)}`
+        : `تمت إضافة ${valid.length} بند من الفاتورة`,
+    )
     close()
   }
 
@@ -365,10 +401,43 @@ export default function ReceiptScannerModal({
                   }}
                 />
               </div>
-              {meta.total != null && (
-                <p className="tnum rounded-xl bg-ink-50 px-3 py-2.5 text-xs font-bold dark:bg-ink-950">
-                  إجمالي الفاتورة المقروء: {formatMoney(meta.total, settings.currency)}
-                </p>
+              <div>
+                <label className="label" htmlFor="r-total">
+                  المبلغ المدفوع (بعد الخصم)
+                </label>
+                <input
+                  id="r-total"
+                  className="field tnum"
+                  inputMode="decimal"
+                  value={meta.total ?? ''}
+                  onChange={(e) =>
+                    setMeta((m) => ({
+                      ...m,
+                      total: e.target.value ? parseNumber(e.target.value) : null,
+                    }))
+                  }
+                  placeholder="اتركه فارغاً لو لا يوجد خصم"
+                />
+              </div>
+
+              {hasDiscount && (
+                <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-3 dark:border-emerald-500/40 dark:bg-emerald-500/10">
+                  <p className="tnum text-[11px] font-bold leading-6 text-emerald-800 dark:text-emerald-200">
+                    مجموع البنود: {formatMoney(grossTotal, settings.currency)}
+                    <br />
+                    الخصم: {formatMoney(discountValue, settings.currency)} (
+                    {formatNumber((discountValue / grossTotal) * 100)}%)
+                  </p>
+                  <label className="mt-2 flex cursor-pointer items-start gap-2 text-[11px] font-bold leading-6 text-emerald-900 dark:text-emerald-100">
+                    <input
+                      type="checkbox"
+                      checked={applyDiscount}
+                      onChange={(e) => setApplyDiscount(e.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-emerald-400 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    وزّع الخصم على أسعار البنود — فتُسجَّل بسعرها الفعلي المدفوع
+                  </label>
+                </div>
               )}
               {receipt && (
                 <p className="text-[11px] font-semibold text-ink-400">
@@ -394,6 +463,7 @@ export default function ReceiptScannerModal({
                 <LineRow
                   key={line.tempId}
                   line={line}
+                  discountFactor={discounted && line.selected ? discounted.factor : 1}
                   currency={settings.currency}
                   categories={categories}
                   onPatch={(patch) => patchLine(line.tempId, patch)}
@@ -424,12 +494,15 @@ function LineRow({
   line,
   categories,
   currency,
+  discountFactor,
   onPatch,
   onRemove,
 }: {
   line: ExtractedLine
   categories: { id: string; name: string; icon: string; color: string }[]
   currency: string
+  /** 1 = بلا خصم، أقل من ذلك = نسبة السعر بعد توزيع الخصم */
+  discountFactor: number
   onPatch: (patch: Partial<ExtractedLine>) => void
   onRemove: () => void
 }) {
@@ -505,9 +578,23 @@ function LineRow({
           </datalist>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="tnum text-xs font-extrabold text-brand-700 dark:text-brand-300">
-              {formatMoney(line.unitCost * line.quantity, currency)}
-            </span>
+            {discountFactor < 1 ? (
+              <span className="flex items-center gap-1.5">
+                <span className="tnum text-xs font-extrabold text-emerald-700 dark:text-emerald-300">
+                  {formatMoney(
+                    Math.round(line.unitCost * discountFactor * 100) / 100 * line.quantity,
+                    currency,
+                  )}
+                </span>
+                <span className="tnum text-[10px] font-bold text-ink-400 line-through">
+                  {formatMoney(line.unitCost * line.quantity, currency)}
+                </span>
+              </span>
+            ) : (
+              <span className="tnum text-xs font-extrabold text-brand-700 dark:text-brand-300">
+                {formatMoney(line.unitCost * line.quantity, currency)}
+              </span>
+            )}
             {line.edited && <Badge>معدّل يدوياً</Badge>}
             {isDuplicate && <Badge tone="warn">مكرر: {line.duplicateReason}</Badge>}
             <button

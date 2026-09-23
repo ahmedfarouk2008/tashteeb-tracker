@@ -33,7 +33,7 @@ import {
 import { fingerprintOf } from './lib/dedupe'
 import { MODEL_FALLBACK_EVENT } from './lib/ai'
 import { consumeAuthRedirect, currentUser, isSyncConfigured, resetSupabase } from './lib/supabase'
-import { deleteRemoteImage, syncAll } from './lib/sync'
+import { deleteRemoteImage, diagnoseSync, syncAll, type DiagnosticLine } from './lib/sync'
 import { uid } from './lib/utils'
 
 export type Toast = { id: string; text: string; tone: 'success' | 'error' | 'info' }
@@ -74,6 +74,7 @@ interface Store {
   syncState: SyncState
   refreshSyncUser: () => Promise<void>
   runSync: (silent?: boolean, full?: boolean) => Promise<void>
+  runDiagnostics: () => Promise<DiagnosticLine[]>
 
   exportBackup: (includeImages: boolean) => Promise<string>
   importData: (raw: string) => Promise<void>
@@ -389,7 +390,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (result.pulled) parts.push(`نزل ${result.pulled}`)
         if (result.pushed) parts.push(`رُفع ${result.pushed}`)
         if (result.imagesDownloaded) parts.push(`${result.imagesDownloaded} صورة`)
+        if (result.imagesFailed) parts.push(`${result.imagesFailed} صورة فشلت`)
         const summary = parts.length ? parts.join(' · ') : 'كل شيء محدَّث'
+        if (result.imageError) notify(result.imageError, 'error')
         setSyncState({ status: 'ok', at: result.syncedAt, summary })
         if (!silent && (result.pulled || result.imagesDownloaded)) notify(`تمت المزامنة — ${summary}`)
         else if (!silent) notify('تمت المزامنة — كل شيء محدَّث')
@@ -403,6 +406,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [data, syncUser, notify],
   )
+
+  const runDiagnostics = useCallback(async () => {
+    if (!syncUser) throw new Error('سجّل الدخول للمزامنة أولاً.')
+    return diagnoseSync(data, syncUser.id)
+  }, [data, syncUser])
 
   /**
    * نسخة احتياطية كاملة. صور الفواتير محفوظة في IndexedDB ولا تدخل JSON
@@ -574,6 +582,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       syncState,
       refreshSyncUser,
       runSync,
+      runDiagnostics,
       exportBackup,
       importData,
       resetAll,
@@ -603,6 +612,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       syncState,
       refreshSyncUser,
       runSync,
+      runDiagnostics,
       exportBackup,
       importData,
       resetAll,

@@ -11,14 +11,23 @@ import {
   supabaseConfig,
   validateProjectUrl,
 } from '../lib/supabase'
+import type { DiagnosticLine } from '../lib/sync'
 import { formatDate } from '../lib/utils'
 import { Badge, Spinner } from './ui'
 import { IconAlert, IconCheck, IconLink, IconRefresh } from '../components/Icons'
 
 /** لوحة المزامنة السحابية داخل شاشة الإعدادات */
 export default function SyncPanel() {
-  const { settings, updateSettings, syncUser, syncState, refreshSyncUser, runSync, notify } =
-    useStore()
+  const {
+    settings,
+    updateSettings,
+    syncUser,
+    syncState,
+    refreshSyncUser,
+    runSync,
+    runDiagnostics,
+    notify,
+  } = useStore()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -26,6 +35,8 @@ export default function SyncPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [showConfig, setShowConfig] = useState(false)
+  const [diagnosing, setDiagnosing] = useState(false)
+  const [diagnostics, setDiagnostics] = useState<DiagnosticLine[] | null>(null)
 
   const configured = isSyncConfigured(settings)
   const effectiveUrl = supabaseConfig(settings).url
@@ -345,6 +356,25 @@ export default function SyncPanel() {
             >
               مزامنة كاملة
             </button>
+            <button
+              type="button"
+              className="btn-outline"
+              onClick={async () => {
+                setDiagnostics(null)
+                setDiagnosing(true)
+                try {
+                  setDiagnostics(await runDiagnostics())
+                } catch (err) {
+                  notify((err as Error).message, 'error')
+                } finally {
+                  setDiagnosing(false)
+                }
+              }}
+              disabled={diagnosing}
+            >
+              {diagnosing ? <Spinner /> : null}
+              فحص المزامنة
+            </button>
             <button type="button" className="btn-outline" onClick={() => setShowConfig((v) => !v)}>
               بيانات المشروع
             </button>
@@ -352,6 +382,36 @@ export default function SyncPanel() {
               تسجيل الخروج
             </button>
           </div>
+
+          {diagnostics && (
+            <ul className="space-y-1.5 rounded-2xl border border-ink-100 p-3 dark:border-ink-800">
+              {diagnostics.map((line) => (
+                <li key={line.label} className="flex items-start gap-2 text-xs font-bold leading-6">
+                  <span
+                    className={
+                      line.status === 'ok'
+                        ? 'mt-1 text-emerald-600 dark:text-emerald-400'
+                        : 'mt-1 text-rose-600 dark:text-rose-400'
+                    }
+                  >
+                    {line.status === 'ok' ? (
+                      <IconCheck width={14} height={14} />
+                    ) : (
+                      <IconAlert width={14} height={14} />
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    {line.label}
+                    {line.detail && (
+                      <span className="block font-semibold text-ink-500 dark:text-ink-400">
+                        {line.detail}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </section>

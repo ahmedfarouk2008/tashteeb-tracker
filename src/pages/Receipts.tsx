@@ -3,9 +3,10 @@ import { useStore } from '../store'
 import type { Receipt } from '../types'
 import { getBlob } from '../lib/storage'
 import { fetchRemoteImage } from '../lib/sync'
-import { lineTotal } from '../lib/analytics'
+import { distributeDiscount, lineTotal } from '../lib/analytics'
 import { formatBytes, formatDate, formatMoney, formatNumber, normalizeArabic } from '../lib/utils'
 import { Badge, ConfirmDialog, EmptyState, Modal, useObjectUrl } from '../components/ui'
+import { parseNumber } from '../lib/utils'
 import { IconGallery, IconSearch, IconSparkles, IconTrash, IconUpload } from '../components/Icons'
 import ReceiptScannerModal from '../components/ReceiptScannerModal'
 
@@ -184,11 +185,35 @@ function ReceiptViewer({
   onClose: () => void
   onDelete: () => void
 }) {
-  const { expenses, categories, settings } = useStore()
+  const { expenses, categories, settings, updateExpense, updateReceipt, notify } = useStore()
   const loadImage = useReceiptImage(receipt.blobKey)
   const url = useObjectUrl(loadImage, [receipt.blobKey])
   const linked = expenses.filter((e) => e.receiptId === receipt.id)
   const total = linked.reduce((s, e) => s + lineTotal(e), 0)
+
+  /* تصحيح فاتورة أُضيفت بالسعر الكامل بينما كان فيها خصم */
+  const [discountOpen, setDiscountOpen] = useState(false)
+  const [paidInput, setPaidInput] = useState('')
+  const paid = parseNumber(paidInput)
+  const canApply = paid > 0 && total > 0 && paid < total
+
+  const applyDiscount = () => {
+    const priced = distributeDiscount(
+      linked.map((e) => ({ id: e.id, unitCost: e.unitCost, quantity: e.quantity })),
+      paid,
+    )
+    for (const line of priced.lines) {
+      const original = linked.find((e) => e.id === line.id)
+      if (!original) continue
+      updateExpense(line.id, {
+        unitCost: line.discountedUnitCost,
+        listUnitCost: original.listUnitCost ?? original.unitCost,
+      })
+    }
+    updateReceipt(receipt.id, { total: paid })
+    notify(`تم توزيع الخصم على ${priced.lines.length} بند`)
+    setDiscountOpen(false)
+  }
 
   return (
     <Modal
@@ -206,6 +231,18 @@ function ReceiptViewer({
             <a href={url} download={receipt.fileName} className="btn-outline">
               تنزيل الصورة
             </a>
+          )}
+          {linked.length > 0 && (
+            <button
+              type="button"
+              className="btn-outline"
+              onClick={() => {
+                setPaidInput(receipt.total ? String(receipt.total) : '')
+                setDiscountOpen((v) => !v)
+              }}
+            >
+              توزيع خصم
+            </button>
           )}
           <button type="button" className="btn-danger" onClick={onDelete}>
             <IconTrash width={16} height={16} /> حذف
@@ -238,6 +275,51 @@ function ReceiptViewer({
             )}
           </div>
 
+          {discountOpen && (
+            <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5 dark:border-emerald-500/40 dark:bg-emerald-500/10">
+              <p className="text-xs font-extrabold text-emerald-900 dark:text-emerald-100">
+                توزيع خصم الفاتورة على بنودها
+              </p>
+              <p className="tnum mt-1 text-[11px] font-bold leading-6 text-emerald-800 dark:text-emerald-200">
+                مجموع البنود الحالي: {formatMoney(total, settings.currency)}
+              </p>
+              <label className="label mt-2" htmlFor="paid-total">
+                المبلغ المدفوع فعلياً
+              </label>
+              <input
+                id="paid-total"
+                className="field tnum"
+                inputMode="decimal"
+                value={paidInput}
+                onChange={(e) => setPaidInput(e.target.value)}
+                placeholder="مثال: 15000"
+              />
+              {canApply && (
+                <p className="tnum mt-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                  الخصم: {formatMoney(total - paid, settings.currency)} (
+                  {formatNumber(((total - paid) / total) * 100)}%) — سيُوزَّع على كل بند بالتناسب.
+                </p>
+              )}
+              <div className="mt-2.5 flex gap-2">
+                <button
+                  type="button"
+                  className="btn-primary btn-sm"
+                  onClick={applyDiscount}
+                  disabled={!canApply}
+                >
+                  تطبيق
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost btn-sm"
+                  onClick={() => setDiscountOpen(false)}
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          )}
+
           <div>
             <h3 className="mb-2 text-sm font-extrabold">
               البنود المرتبطة ({formatNumber(linked.length)})
@@ -255,6 +337,11 @@ function ReceiptViewer({
                           <p className="tnum text-[10px] text-ink-400">
                             {formatNumber(e.quantity)} {e.unit} ×{' '}
                             {formatMoney(e.unitCost, settings.currency)}
+                            {e.listUnitCost != null && e.listUnitCost > e.unitCost && (
+                              <span className="ms-1 line-through">
+                                {formatMoney(e.listUnitCost, settings.currency)}
+                              </span>
+                            )}
                           </p>
                         </div>
                         <span className="tnum text-xs font-extrabold">

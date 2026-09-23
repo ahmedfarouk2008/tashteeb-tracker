@@ -35,6 +35,8 @@ export interface Expense {
   notes?: string
   vendor?: string
   receiptId?: string
+  /** سعر الوحدة قبل الخصم — يُحفظ عند توزيع خصم الفاتورة على البنود */
+  listUnitCost?: number
   source: ExpenseSource
   /** بصمة تستخدم لكشف التكرار */
   fingerprint: string
@@ -161,11 +163,18 @@ export interface ExtractedLine {
   selected: boolean
   /** عدّل المستخدم هذا السطر يدوياً بعد قراءته من الفاتورة */
   edited: boolean
+  /** سعر الوحدة قبل توزيع الخصم — للعرض والمراجعة */
+  listUnitCost?: number
 }
 
 export interface OcrResult {
   vendor?: string
   date?: string
+  /** مجموع البنود قبل الخصم كما هو مكتوب في الفاتورة */
+  subtotal?: number
+  /** قيمة الخصم المكتوبة في الفاتورة */
+  discount?: number
+  /** المبلغ المدفوع فعلياً بعد الخصم */
   total?: number
   currency?: string
   notes?: string
