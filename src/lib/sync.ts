@@ -146,20 +146,27 @@ export async function syncAll(
   }
 
   // الإعدادات المشتركة فقط — المفاتيح السرية تبقى على الجهاز
-  const sharedSettings = {
-    projectName: merged.settings.projectName,
-    currency: merged.settings.currency,
-    totalBudget: merged.settings.totalBudget,
-    region: merged.settings.region,
+  /**
+   * الإعدادات تُرفع فقط إن تغيّرت فعلاً على هذا الجهاز.
+   * رفعها في كل مزامنة كان يجعل آخر جهاز يزامن يمحو تعديل الآخر.
+   */
+  const settingsAt = merged.settings.settingsUpdatedAt
+  if (settingsAt && stamp(settingsAt) > stamp(pushSince)) {
+    outgoing.push({
+      user_id: userId,
+      kind: 'settings',
+      id: 'main',
+      payload: {
+        projectName: merged.settings.projectName,
+        currency: merged.settings.currency,
+        totalBudget: merged.settings.totalBudget,
+        region: merged.settings.region,
+        updatedAt: settingsAt,
+      },
+      updated_at: settingsAt,
+      deleted: false,
+    })
   }
-  outgoing.push({
-    user_id: userId,
-    kind: 'settings',
-    id: 'main',
-    payload: { ...sharedSettings, updatedAt: pushedAt },
-    updated_at: pushedAt,
-    deleted: false,
-  })
 
   for (const batch of chunk(outgoing, BATCH)) {
     const { error } = await supabase.from(TABLE).upsert(batch, { onConflict: 'user_id,kind,id' })
@@ -395,13 +402,17 @@ function applyRemoteUpsert(data: AppData, row: RemoteRow): boolean {
   }
 
   if (row.kind === 'settings') {
-    const shared = row.payload as Partial<AppData['settings']>
+    const shared = row.payload as Partial<AppData['settings']> & { updatedAt?: string }
+    // لا نقبل نسخة أقدم من تعديلنا المحلي
+    if (remoteStamp <= stamp(data.settings.settingsUpdatedAt)) return false
+
     data.settings = {
       ...data.settings,
       projectName: shared.projectName ?? data.settings.projectName,
       currency: shared.currency ?? data.settings.currency,
       totalBudget: shared.totalBudget ?? data.settings.totalBudget,
       region: shared.region ?? data.settings.region,
+      settingsUpdatedAt: shared.updatedAt ?? row.updated_at,
     }
     return true
   }

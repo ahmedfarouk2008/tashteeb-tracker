@@ -158,8 +158,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /* ---------------- الإعدادات ---------------- */
 
+  /** الإعدادات التي تُشارَك بين الأجهزة — تغييرها يستدعي مزامنة */
+  const SHARED_SETTINGS = ['projectName', 'currency', 'totalBudget', 'region'] as const
+
   const updateSettings = useCallback((patch: Partial<Settings>) => {
-    setData((d) => ({ ...d, settings: { ...d.settings, ...patch } }))
+    setData((d) => {
+      const touchesShared = SHARED_SETTINGS.some(
+        (key) => key in patch && patch[key] !== d.settings[key],
+      )
+      return {
+        ...d,
+        settings: {
+          ...d.settings,
+          ...patch,
+          ...(touchesShared ? { settingsUpdatedAt: new Date().toISOString() } : {}),
+        },
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /* ---------------- المصاريف ---------------- */
@@ -526,8 +542,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       latest(data.expenses),
       latest(data.categories),
       latest(data.receipts),
+      // بدون هذا لا تُزامَن الميزانية الكلية ولا اسم المشروع تلقائياً
+      data.settings.settingsUpdatedAt ?? '',
     ].join('|')
-  }, [data.expenses, data.categories, data.receipts, data.deletions])
+  }, [
+    data.expenses,
+    data.categories,
+    data.receipts,
+    data.deletions,
+    data.settings.settingsUpdatedAt,
+  ])
 
   /* مزامنة تلقائية بعد توقف التعديلات (تجميع التغييرات في دفعة واحدة) */
   useEffect(() => {
